@@ -129,6 +129,17 @@ test('reportText leads with the thread, its state and the answer, and stays belo
   const long = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: 'x'.repeat(100_000) })
   expect(new TextEncoder().encode(long).length).toBeLessThan(30_000)
 
+  const wide = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: '漢'.repeat(20_000) })
+  expect(new TextEncoder().encode(wide).length).toBeLessThan(30_000)
+  expect(wide).toContain('gekürzt')
+
+  const emoji = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: '😀'.repeat(20_000) })
+  expect(new TextEncoder().encode(emoji).length).toBeLessThan(30_000)
+  expect(emoji).not.toContain('\uFFFD')
+  expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emoji)).toBe(false)
+
+  const short = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: 'ü'.repeat(1_000) })
+  expect(short).not.toContain('gekürzt')
   expect(long).toContain('gekürzt')
 })
 

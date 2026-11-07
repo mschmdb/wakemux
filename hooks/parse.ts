@@ -107,8 +107,23 @@ export type Report = {
   answer: string
 }
 
-// cmux agent messages are capped at 32 KiB; keep headroom for the header.
-const ANSWER_LIMIT = 24_000
+// cmux agent messages are capped at 32 KiB of UTF-8; keep headroom for the header.
+const ANSWER_LIMIT_BYTES = 24_000
+
+// Cuts at a code point boundary, so a surrogate pair is never split.
+function truncateUtf8(text: string, maxBytes: number): string {
+  const encoder = new TextEncoder()
+  if (encoder.encode(text).length <= maxBytes) return text
+  let bytes = 0
+  let end = 0
+  for (const char of text) {
+    const size = encoder.encode(char).length
+    if (bytes + size > maxBytes) break
+    bytes += size
+    end += char.length
+  }
+  return text.slice(0, end)
+}
 
 export function reportText(report: Report): string {
   const state = [
@@ -119,7 +134,8 @@ export function reportText(report: Report): string {
   const how =
     report.reason === 'answer' ? 'wartet auf Eingabe' : report.reason === 'aborted' ? 'abgebrochen' : report.reason === 'refusal' ? 'verweigert' : 'mit Fehler beendet'
   let answer = report.answer.trim()
-  if (answer.length > ANSWER_LIMIT) answer = answer.slice(0, ANSWER_LIMIT) + '\n[… gekürzt, Rest im Thread]'
+  const cut = truncateUtf8(answer, ANSWER_LIMIT_BYTES)
+  if (cut !== answer) answer = cut + '\n[… gekürzt, Rest im Thread]'
   return [`[Thread ${report.slug}] ${how}. ${state}.`, answer || '(keine Textantwort)'].join('\n\n')
 }
 
