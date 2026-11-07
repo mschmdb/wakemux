@@ -70,7 +70,7 @@ load helpers
 @test "the first thread turns the calling workspace into main below a new group" {
 	CMUX_WORKSPACE_ID=caller STUB_CWD="$REPO" run "$WAKEMUX" new grouped --repo "$REPO"
 	[ "$status" -eq 0 ]
-	log_contains "workspace-group create"
+	log_contains "workspace-group create --name repo --cwd $REPO"
 	log_contains "workspace-group add --group group:1 --workspace caller"
 	log_contains "workspace-action --workspace caller --action rename --title main"
 	log_contains "--group group:1 --group-placement end"

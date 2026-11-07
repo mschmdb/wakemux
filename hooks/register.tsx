@@ -102,7 +102,8 @@ async function handOver($: Dollar, thread: ThreadRow) {
   if (!(await isMainSession($))) return say($, 'Hand-over works only from the main checkout\'s session.')
   const state = await read($, snapshot)
   await say($, `${thread.slug}: handed over to Claude.`)
-  void $.prompt.submit({ text: handOverPrompt(thread, state.base, state.prRequired) })
+  const remote = (await git($, state.repo, 'remote')).stdout.trim()
+  void $.prompt.submit({ text: handOverPrompt(thread, state.base, { prRequired: state.prRequired, hasRemote: remote !== '' }) })
 }
 
 async function removeThread($: Dollar, slug: string) {

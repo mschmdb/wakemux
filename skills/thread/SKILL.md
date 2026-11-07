@@ -27,7 +27,7 @@ For several threads at once, run one command per task.
 
 ## Clean up
 
-Only when the user asks for it ("thread X is done", "clean up X").
+Only when the user asks for it ("thread X is done", "clean up X"), including through the pane's hand-over button.
 
 1. Check with `git -C <worktree> status --short` that everything is committed (`git worktree list` shows the path). If not, say so and stop.
 2. Close the workspace: `CMUX_QUIET=1 cmux close-workspace --workspace <ref> --force`. `cmux tree --all` lists the ref; the workspace name is the slug.
@@ -54,7 +54,7 @@ Limits: never work around a repository rule (for example branch protection with 
 
 ## Merge back
 
-Only when the user asks for it ("merge thread X", "merge X back"). It runs in the main checkout, not in the thread: the target branch is checked out there, and a worktree cannot check it out.
+Only when the user asks for it ("merge thread X", "merge X back"), or when the pane's "Hand over & clean up" button submits a prompt saying the user pressed it. It runs in the main checkout, not in the thread: the target branch is checked out there, and a worktree cannot check it out.
 
 1. Check that the thread worktree and the main checkout are clean (`git status --short`). If not, say so and stop.
 2. In the main checkout: `git merge --no-ff <branch>` (default `thread/<slug>`). On conflicts: `git merge --abort`, name the conflicting files, stop.

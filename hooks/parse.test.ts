@@ -98,7 +98,11 @@ test('parseCwd reads the workspace directory of sidebar-state', () => {
 test('handOverPrompt names thread, branch and base and points to the repo rules', () => {
   const thread = { slug: 'og-images', branch: 'thread/og-images', ahead: 3, merge: 'clean' as const }
 
-  const own = handOverPrompt(thread, 'feature/x', false)
+  const own = handOverPrompt(thread, 'feature/x', { prRequired: false, hasRemote: true })
+  expect(own).toContain('The user pressed "Hand over & clean up"')
+  expect(own).toContain('their request')
+  expect(own).toContain('ask the user once whether to open a PR or merge locally')
+  expect(own).toContain('wakemux done og-images')
   expect(own).toContain('og-images')
   expect(own).toContain('thread/og-images')
   expect(own).toContain('feature/x')
@@ -106,11 +110,15 @@ test('handOverPrompt names thread, branch and base and points to the repo rules'
   expect(own).not.toContain('Merge it')
   expect(own).not.toContain('PRs')
 
-  const required = handOverPrompt({ ...thread, merge: 'conflict' }, 'main', true)
+  const local = handOverPrompt(thread, 'main', { prRequired: false, hasRemote: false })
+  expect(local).toContain('no remote')
+  expect(local).toContain('git merge --no-ff thread/og-images')
+
+  const required = handOverPrompt({ ...thread, merge: 'conflict' }, 'main', { prRequired: true, hasRemote: true })
   expect(required).toContain('requires PRs')
   expect(required).toContain('conflict')
 
-  const one = handOverPrompt({ ...thread, ahead: 1 }, 'main', false)
+  const one = handOverPrompt({ ...thread, ahead: 1 }, 'main', { prRequired: false, hasRemote: true })
   expect(one).toContain('1 commit ahead of main')
 })
 

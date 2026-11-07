@@ -128,26 +128,14 @@ for g in groups:
 
 # First thread in a project: a generated workspace becomes the group header,
 # the calling workspace moves below it as "main". The header hides its own
-# agent status, so the real checkout must not be the anchor.
+# agent status, so the real checkout must not be the anchor. The group takes
+# the repository's folder name; a session title often names its first task instead.
 create_group_from_caller() {
-	local repo=$1 caller_cwd title group
+	local repo=$1 caller_cwd group
 	[ -n "${CMUX_WORKSPACE_ID:-}" ] || return 0
 	caller_cwd=$(cmux sidebar-state --workspace "$CMUX_WORKSPACE_ID" | sed -n 's/^cwd=//p')
 	[ "$caller_cwd" = "$repo" ] || return 0
-	title=$(cmux tree --all --json | python3 -c '
-import json, sys
-target = sys.argv[1]
-def walk(node):
-    if isinstance(node, dict):
-        if node.get("id") == target: print(node.get("title") or ""); sys.exit()
-        for value in node.values(): walk(value)
-    elif isinstance(node, list):
-        for value in node: walk(value)
-try:
-    walk(json.load(sys.stdin))
-except ValueError:
-    pass' "$CMUX_WORKSPACE_ID")
-	group=$(cmux workspace-group create --name "${title:-$(basename "$repo")}" --cwd "$repo" | awk '{print $2}')
+	group=$(cmux workspace-group create --name "$(basename "$repo")" --cwd "$repo" | awk '{print $2}')
 	[ -n "$group" ] || return 0
 	cmux workspace-group add --group "$group" --workspace "$CMUX_WORKSPACE_ID" >/dev/null
 	CMUX_QUIET=1 cmux workspace-action --workspace "$CMUX_WORKSPACE_ID" --action rename --title main >/dev/null

@@ -85,14 +85,24 @@ export function commits(count: number): string {
 
 type HandOverThread = { slug: string; branch: string; ahead: number; merge: 'clean' | 'conflict' | 'unknown' }
 
-// The pane states facts only. How a thread lands (PR or local merge) is the repository's rule,
-// which the main session reads from CLAUDE.md, AGENTS.md and memory. Same text on every machine.
-export function handOverPrompt(thread: HandOverThread, base: string, prRequired: boolean): string {
+// The pane's hand-over button submits this prompt. It says that the user pressed the button, so the
+// main session takes it as the user's request. How the thread lands is the repository's rule.
+export function handOverPrompt(
+  thread: HandOverThread,
+  base: string,
+  repo: { prRequired: boolean; hasRemote: boolean },
+): string {
+  const fallback = repo.hasRemote
+    ? 'If they say nothing, ask the user once whether to open a PR or merge locally.'
+    : `If they say nothing: the repository has no remote, so merge it locally in the main checkout with git merge --no-ff ${thread.branch}.`
   const facts = [
-    `Thread ${thread.slug} is done: branch ${thread.branch}, ${commits(thread.ahead)} ahead of ${base}.`,
+    `The user pressed "Hand over & clean up" in the wakemux pane. This prompt is their request to land thread ${thread.slug} and clean it up.`,
+    `Branch ${thread.branch}, ${commits(thread.ahead)} ahead of ${base}.`,
     thread.merge === 'conflict' ? 'Merging it into the base would conflict.' : '',
-    prRequired ? 'This repository requires PRs.' : '',
-    "Land it the way this repository's rules say (CLAUDE.md, AGENTS.md, memory), then clean up the thread.",
+    repo.prRequired ? 'This repository requires PRs.' : '',
+    "Land it the way this repository's rules say (CLAUDE.md, AGENTS.md, memory).",
+    fallback,
+    `Then close the thread's workspace and run wakemux done ${thread.slug}.`,
   ]
   return facts.filter(Boolean).join(' ')
 }
