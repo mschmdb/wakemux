@@ -3,6 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import {
   handOverPrompt,
   isPrRequiredRemote,
+  isThreadBranch,
   parseParent,
   reportText,
   threadSlugOf,
@@ -16,7 +17,7 @@ import {
 const MAIN = '/Users/m/Sites/app'
 const DIR = '.claude/worktrees'
 
-test('parseWorktrees keeps only threads under .claude/worktrees', () => {
+test('parseWorktrees keeps only thread branches under .claude/worktrees', () => {
   const porcelain = [
     `worktree ${MAIN}`,
     'HEAD 1111',
@@ -30,21 +31,25 @@ test('parseWorktrees keeps only threads under .claude/worktrees', () => {
     'HEAD 3333',
     'detached',
     '',
+    // A worktree from `claude --worktree` sits in the same folder on a branch of its own.
+    `worktree ${MAIN}/.claude/worktrees/calm-puffin`,
+    'HEAD 4444',
+    'branch refs/heads/worktree-calm-puffin',
+    '',
     '/elsewhere',
   ].join('\n')
 
-  expect(parseWorktrees(porcelain, MAIN, DIR)).toEqual([
+  expect(parseWorktrees(porcelain, MAIN, DIR, 'thread/')).toEqual([
     {
       slug: 'og-images',
       path: `${MAIN}/.claude/worktrees/og-images`,
       branch: 'thread/og-images',
     },
-    { slug: 'detached', path: `${MAIN}/.claude/worktrees/detached`, branch: '' },
   ])
 })
 
 test('parseWorktrees returns nothing for a repo without threads', () => {
-  expect(parseWorktrees(`worktree ${MAIN}\nHEAD 1\nbranch refs/heads/main\n`, MAIN, DIR)).toEqual([])
+  expect(parseWorktrees(`worktree ${MAIN}\nHEAD 1\nbranch refs/heads/main\n`, MAIN, DIR, 'thread/')).toEqual([])
 })
 
 test('parseCounts reads behind and ahead from rev-list --left-right', () => {
@@ -199,8 +204,16 @@ test('reportText keeps the whole message within the byte limit it is given', () 
 
 test('a configured worktree folder replaces .claude/worktrees', () => {
   const porcelain = [`worktree ${MAIN}`, 'HEAD 1', 'branch refs/heads/main', '', `worktree ${MAIN}/trees/x`, 'HEAD 2', 'branch refs/heads/task/x', '', `worktree ${MAIN}/.claude/worktrees/y`, 'HEAD 3', 'branch refs/heads/thread/y', ''].join('\n')
-  expect(parseWorktrees(porcelain, MAIN, 'trees')).toEqual([{ slug: 'x', path: `${MAIN}/trees/x`, branch: 'task/x' }])
+  expect(parseWorktrees(porcelain, MAIN, 'trees', 'task/')).toEqual([{ slug: 'x', path: `${MAIN}/trees/x`, branch: 'task/x' }])
   expect(threadSlugOf(`${MAIN}/trees/x/src`, MAIN, 'trees')).toBe('x')
   expect(threadSlugOf(`${MAIN}/treesx/y`, MAIN, 'trees')).toBe('')
   expect(threadSlugOf(`${MAIN}/.claude/worktrees/y`, MAIN, 'trees')).toBe('')
+})
+
+test('isThreadBranch requires the configured prefix', () => {
+  expect(isThreadBranch('thread/x', 'thread/')).toBe(true)
+  expect(isThreadBranch('worktree-calm-puffin', 'thread/')).toBe(false)
+  expect(isThreadBranch('thread/', 'thread/')).toBe(false)
+  expect(isThreadBranch('HEAD', 'thread/')).toBe(false)
+  expect(isThreadBranch('', 'thread/')).toBe(false)
 })

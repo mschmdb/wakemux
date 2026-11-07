@@ -2,8 +2,14 @@
 
 export type Worktree = { slug: string; path: string; branch: string }
 
-// worktreeDir is the setting of the same name: relative to the main checkout, no trailing slash.
-export function parseWorktrees(porcelain: string, mainPath: string, worktreeDir: string): Worktree[] {
+// A thread is on a branch named branchPrefix + slug. Worktrees from `claude --worktree` share the
+// folder but use branches of their own, and are no threads.
+export function isThreadBranch(branch: string, branchPrefix: string): boolean {
+  return branch.startsWith(branchPrefix) && branch.length > branchPrefix.length
+}
+
+// worktreeDir and branchPrefix are the settings of the same names.
+export function parseWorktrees(porcelain: string, mainPath: string, worktreeDir: string, branchPrefix: string): Worktree[] {
   const prefix = `${mainPath}/${worktreeDir}/`
   const result: Worktree[] = []
   for (const block of porcelain.split(/\n\s*\n/)) {
@@ -14,6 +20,7 @@ export function parseWorktrees(porcelain: string, mainPath: string, worktreeDir:
     if (!path.startsWith(prefix)) continue
     const branchLine = lines.find(line => line.startsWith('branch '))
     const branch = branchLine ? branchLine.slice('branch refs/heads/'.length) : ''
+    if (!isThreadBranch(branch, branchPrefix)) continue
     result.push({ slug: path.slice(prefix.length), path, branch })
   }
   return result

@@ -15,6 +15,8 @@ type World = {
   session?: string
   sendAnswer?: (target: string) => string
   inboxState?: string
+  inboxStates?: string[]
+  parentStatus?: string
   sessionDelivered?: boolean
   env?: Record<string, string>
   head?: string
@@ -56,10 +58,14 @@ function fakeWorld(on: On, world: World): Log {
         return ok(world.sendAnswer ? world.sendAnswer(argv[3] ?? '') : '')
       }
       if (argv[1] === 'agent' && argv[2] === 'inbox') {
-        return ok(JSON.stringify({ messages: [{ id: 'm1', state: world.inboxState ?? 'queued' }] }))
+        const state = world.inboxStates?.shift() ?? world.inboxState ?? 'queued'
+        return ok(JSON.stringify({ messages: [{ id: 'm1', state }] }))
       }
       if (argv[1] === 'tree') return ok(world.mainRef ? JSON.stringify({ ref: world.mainRef, title: 'main' }) : '{}')
-      if (argv[1] === 'sidebar-state') return ok(`cwd=${MAIN}\n`)
+      if (argv[1] === 'sidebar-state') {
+        // The parent's agent status for the delivery check; the main checkout's cwd for findMainRef.
+        return ok(argv[3] === 'workspace:3' ? `cwd=/elsewhere\n  claude_code=${world.parentStatus ?? 'Idle'} icon=x\n` : `cwd=${MAIN}\n`)
+      }
       return ok('')
     }
     return { value: { exitCode: 127, stdout: '', stderr: 'unexpected', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -243,4 +249,31 @@ test('the pill shows when reports pause', async ($, on) => {
   await complete($, log, 'One')
   await complete($, log, 'Two')
   expect(pills(log).at(-1)?.[2]).toBe('reports paused after 2 without a commit')
+})
+
+test('a busy parent gets more time instead of the fallback', async ($, on) => {
+  const log = fakeWorld(on, {
+    parent: 'workspace:3',
+    session: SESSION,
+    sendAnswer: () => sent('queued'),
+    inboxStates: ['queued', 'queued', 'delivered'],
+    parentStatus: 'Running',
+    sessionDelivered: true,
+  })
+  await complete($, log, 'Done.')
+  expect(log.sessionSends).toEqual([])
+  expect(notifications(log)).toEqual([])
+})
+
+test('an idle parent with a queued message gets the fallback at once', async ($, on) => {
+  const log = fakeWorld(on, {
+    parent: 'workspace:3',
+    session: SESSION,
+    sendAnswer: () => sent('queued'),
+    inboxStates: ['queued', 'delivered'],
+    parentStatus: 'Idle',
+    sessionDelivered: true,
+  })
+  await complete($, log, 'Done.')
+  expect(log.sessionSends.length).toBe(1)
 })

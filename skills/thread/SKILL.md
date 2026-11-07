@@ -11,7 +11,7 @@ A thread is its own workspace in the project's cmux workspace group. It has its 
 
 1. Check `echo $CMUX_WORKSPACE_ID`. Empty means you are not in cmux. Say so and stop.
 2. Pick a slug: 2 to 4 words, kebab-case, only `a-z0-9-`, for example `filter-bug`.
-3. Write a self-contained first prompt. The new session does not know this conversation. Name the goal, the files involved, known facts, acceptance criteria, and "Commit on your branch. Do not push, do not merge."
+3. Write a self-contained first prompt. The new session does not know this conversation. Name the goal, the files involved, known facts, acceptance criteria, and: "Commit on your branch. Do not push, do not merge. Your answer at the end of each turn reaches the main session automatically; do not send cmux or SendMessage messages yourself."
 4. Start it from the repository:
    ```sh
    wakemux new <slug> --description '<one line>' --prompt '<first prompt>'
@@ -44,7 +44,7 @@ If cmux does not pick a report up within 15 seconds, the mod forwards it through
 A report that ends with `[wakemux] N reports in a row without a new commit` means the thread and this session are going back and forth without progress (setting `maxHops`, default 6). Do not answer the thread. Tell the user what the thread wants and ask how to go on. After one more report the mod stops reporting until the thread commits, and the user gets a desktop notification.
 
 1. **Read:** Is the thread done, does it ask something, or does it only report progress? Acknowledgements need no answer.
-2. **Answer yourself** what the issue, the repository rules (CLAUDE.md, AGENTS.md, memory) or an earlier decision of the user already settle. Reply to the thread with `SendMessage` to its session name (`ListAgents`, the name starts with the slug) or with `cmux agent message <workspace> "<text>"`.
+2. **Answer yourself** what the issue, the repository rules (CLAUDE.md, AGENTS.md, memory) or an earlier decision of the user already settle. Reply to the thread with `cmux agent message --reply-to <message id> "<text>"` (the id stands above each report), or with `SendMessage` to its session name (`ListAgents`, the name starts with the slug). End each reply with "Just answer; do not send a message back yourself.", because cmux shows the thread a reply command it would otherwise use, and you would get every answer twice.
 3. **Escalate to the user** anything about taste, new data or content decisions, cost, permissions, deploys or other people's PRs. Collect the questions and present them together. The affected thread waits; the others keep running.
 4. **Land finished threads** the way the repository's rules say: whether it uses PRs or local merges is in CLAUDE.md, AGENTS.md or memory, not in this skill. Check CI before merging (the exit code of `gh pr checks`, without a pipe). After you open a PR for a thread, run `cmux pr <url> --workspace <thread workspace ref>` in the main checkout if `wakemux config prStatus` prints `true`, so the thread's sidebar entry shows the PR status. Then clean up the thread if the rules allow it.
 5. **Start the next step** when the plan in the issue calls for it (for example the next wave as new threads). Do not let threads push or open PRs; the main session does that in the planned order.

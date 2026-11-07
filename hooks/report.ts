@@ -3,8 +3,8 @@
 // 1. `cmux agent message` to the session that started the thread, else to the main checkout's.
 //    cmux delivers through the receiver's hooks: an idle session wakes up, a busy one reads it
 //    at its next step.
-// 2. If the message is still queued after DELIVERY_CHECK_MS, the receiver's cmux poller is
-//    likely gone. The mod then sends the report through Claude Code (`$.session.send`, what the
+// 2. If the message is still queued after DELIVERY_CHECK_MS while the receiver is idle, its cmux
+//    poller is likely gone. A busy receiver gets up to ten minutes before that counts. The mod then sends the report through Claude Code (`$.session.send`, what the
 //    SendMessage tool does) to the parent session id that `wakemux new` stored.
 // 3. If that fails too, a desktop notification tells the user.
 //
@@ -21,6 +21,7 @@ import {
   forwardText,
   hopAction,
   isDuplicate,
+  keepWaiting,
   messageState,
   nextHops,
   notifyBody,
@@ -31,7 +32,7 @@ import {
 import type { Report } from './parse'
 import type { Pill } from './status'
 import { threadPill } from './status'
-import { parseCwd, parseParent, reportText, threadSlugOf, workspaceRefsByTitle } from './parse'
+import { isThreadBranch, parseAgentStatus, parseCwd, parseParent, reportText, threadSlugOf, workspaceRefsByTitle } from './parse'
 
 const DELIVERY_CHECK_MS = 15_000
 
@@ -48,8 +49,9 @@ async function threadContext($: Dollar): Promise<ThreadContext | null> {
   const top = (await git($, '.', 'rev-parse', '--show-toplevel')).stdout.trim()
   const { config } = await loadConfig($, main)
   const slug = threadSlugOf(top, main, config.worktreeDir)
+  const branch = (await git($, '.', 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const gitDir = (await git($, '.', 'rev-parse', '--absolute-git-dir')).stdout.trim()
-  context = slug ? { slug, main, gitDir } : null
+  context = slug && isThreadBranch(branch, config.branchPrefix) ? { slug, main, gitDir } : null
   return context
 }
 
@@ -92,12 +94,16 @@ async function sendThroughCmux($: Dollar, ctx: ThreadContext, parent: string, te
   return { sent: null, target: parent || mainRef }
 }
 
-async function isPickedUp($: Dollar, sent: Sent): Promise<boolean> {
+async function isPickedUp($: Dollar, sent: Sent, target: string): Promise<boolean> {
   if (sent.state === 'delivered' || sent.state === 'read') return true
-  await $.clock.sleep(DELIVERY_CHECK_MS)
-  const inbox = await cmux($, 'agent', 'inbox', '--surface', sent.surfaceId, '--json', '--limit', '50')
-  const state = messageState(inbox.stdout, sent.id)
-  return state === 'delivered' || state === 'read'
+  for (let waited = DELIVERY_CHECK_MS; ; waited += DELIVERY_CHECK_MS) {
+    await $.clock.sleep(DELIVERY_CHECK_MS)
+    const inbox = await cmux($, 'agent', 'inbox', '--surface', sent.surfaceId, '--json', '--limit', '50')
+    const state = messageState(inbox.stdout, sent.id)
+    if (state === 'delivered' || state === 'read') return true
+    const status = parseAgentStatus((await cmux($, 'sidebar-state', '--workspace', target)).stdout)
+    if (state !== 'queued' || !keepWaiting(status, waited)) return false
+  }
 }
 
 async function notify($: Dollar, workspace: string, slug: string, body: string) {
@@ -109,7 +115,7 @@ async function notify($: Dollar, workspace: string, slug: string, body: string) 
 async function deliver($: Dollar, ctx: ThreadContext, text: string) {
   const parent = parseParent(await readNote($, `${ctx.gitDir}/wakemux-parent`))
   const { sent, target } = await sendThroughCmux($, ctx, parent, text)
-  if (sent && (await isPickedUp($, sent))) return
+  if (sent && (await isPickedUp($, sent, target))) return
 
   const sessionId = parseSessionId(await readNote($, `${ctx.gitDir}/wakemux-parent-session`))
   if (sessionId) {

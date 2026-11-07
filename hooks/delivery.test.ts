@@ -10,6 +10,7 @@ import {
   notifyBody,
   parseSent,
   parseSessionId,
+  keepWaiting,
   reportKey,
 } from './delivery'
 
@@ -114,4 +115,12 @@ test('parseSessionId accepts session ids and rejects anything else', () => {
   expect(parseSessionId('session_01YRnNFqVZhHnDBD6icYZkHz')).toBe('session_01YRnNFqVZhHnDBD6icYZkHz')
   expect(parseSessionId('$(rm -rf ~)')).toBe('')
   expect(parseSessionId('')).toBe('')
+})
+
+test('keepWaiting waits while the receiving session works, up to ten minutes', () => {
+  expect(keepWaiting('Running', 15_000)).toBe(true)
+  expect(keepWaiting('Running', 599_000)).toBe(true)
+  expect(keepWaiting('Running', 600_000)).toBe(false)
+  expect(keepWaiting('Idle', 15_000)).toBe(false)
+  expect(keepWaiting('', 15_000)).toBe(false)
 })

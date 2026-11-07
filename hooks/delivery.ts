@@ -40,6 +40,14 @@ export function messageState(inboxJson: string, id: string): string {
   return ''
 }
 
+const BUSY_WAIT_MS = 600_000
+
+// A queued message is normal while the receiving session works: cmux hands it over at the
+// session's next step. Only an idle session with a queued message has lost its poller.
+export function keepWaiting(agentStatus: string, waitedMs: number): boolean {
+  return agentStatus.startsWith('Running') && waitedMs < BUSY_WAIT_MS
+}
+
 export type Hops = { head: string; count: number }
 
 // A hop is a report on the same commit as the one before it.

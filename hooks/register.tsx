@@ -34,7 +34,7 @@ async function collect($: Dollar): Promise<Snapshot> {
   if (!repo) return { ...EMPTY, error: 'Not a git repository.' }
   const { config, warnings } = await loadConfig($, repo)
   const base = (await git($, repo, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
-  const worktrees = parseWorktrees((await git($, repo, 'worktree', 'list', '--porcelain')).stdout, repo, config.worktreeDir)
+  const worktrees = parseWorktrees((await git($, repo, 'worktree', 'list', '--porcelain')).stdout, repo, config.worktreeDir, config.branchPrefix)
   const refs = workspaceRefsByTitle((await cmux($, 'tree', '--all', '--json')).stdout)
 
   const threads: ThreadRow[] = []

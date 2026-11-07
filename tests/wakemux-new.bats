@@ -331,3 +331,9 @@ ignore_in_repo() {
 	[ ! -e "$REPO/.claude/worktrees/ignore-check/.env" ]
 	[ -f "$REPO/.claude/worktrees/ignore-check/local.db" ]
 }
+
+@test "maxThreads ignores worktrees from claude --worktree in the same folder" {
+	git -C "$REPO" worktree add -q -b worktree-calm-puffin "$REPO/.claude/worktrees/calm-puffin"
+	WAKEMUX_MAX_THREADS=1 run "$WAKEMUX" new counted --repo "$REPO"
+	[ "$status" -eq 0 ]
+}

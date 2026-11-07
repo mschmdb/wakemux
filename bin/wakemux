@@ -250,8 +250,12 @@ cmd_new() {
 	[ -e "$wt" ] && die "worktree already exists: $wt"
 	if [ "$cfg_max_threads" -gt 0 ]; then
 		local open
+		# Threads only: worktrees from claude --worktree share the folder on branches of their own.
 		open=$(git -C "$repo" worktree list --porcelain |
-			awk -v prefix="worktree $repo/$cfg_worktree_dir/" 'index($0, prefix) == 1 { n++ } END { print n + 0 }')
+			awk -v prefix="worktree $repo/$cfg_worktree_dir/" -v branch="branch refs/heads/$cfg_branch_prefix" '
+				/^worktree / { inside = (index($0, prefix) == 1) }
+				/^branch / { if (inside && index($0, branch) == 1) n++ }
+				END { print n + 0 }')
 		[ "$open" -lt "$cfg_max_threads" ] ||
 			die "$open threads are open (maxThreads $cfg_max_threads). Land or clean up one first, or raise maxThreads."
 	fi
