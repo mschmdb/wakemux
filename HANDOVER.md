@@ -43,7 +43,7 @@ Recommended but not yet confirmed by the author. Treat these as the default plan
 
 ## Current state
 
-Nothing has been moved into this repository yet. The working version lives in three places on the author's machine. None of them is under version control.
+Steps 1 and 2 are done: the code below now lives in this repository, translated and renamed (see the next section). The table describes the original local setup, which still runs on the author's machine.
 
 | Part | Path | Role |
 |---|---|---|
@@ -70,14 +70,19 @@ How the parts work together today:
 
 ## Author-specific details to generalize
 
-These are hard-coded today and must become settings or disappear:
+Done in step 2 (2026-11-07):
 
-- All user-facing text is German (pane, script, skill).
-- Done: the "PRs required" organizations come from `WAKEMUX_PR_REQUIRED_ORGS` (space- or comma-separated) instead of a hard-coded organization. The config layer (step 3) replaces the direct environment read.
-- `register.tsx` calls the script at `$HOME/.local/bin/cmux-aufgabe`.
-- Branch prefix `aufgabe/`, command `fertig`, options `--von` and `--beschreibung`.
-- Dev layout supports pnpm only.
-- The skill names the author's private notes repository and its sync tool. That section stays out of the public skill.
+- All user-facing text is English (pane, script, skill).
+- The "PRs required" organizations come from `WAKEMUX_PR_REQUIRED_ORGS` (space- or comma-separated). The config layer (step 3) replaces the direct environment read.
+- The mod calls the bundled `bin/wakemux` through `$.plugin.root`. The skill calls `wakemux` by name, because Claude Code puts a plugin's `bin/` on the Bash tool's `PATH`.
+- Script: `wakemux new <name>` and `wakemux done <name>`, options `--from` and `--description`, branch prefix `thread/`, `WAKEMUX_COPY_FILES` (default `.env`), git-dir note `wakemux-parent`. Reports are turned off with `WAKEMUX_REPORT=0`.
+- The plugin is named `wakemux`; the skill loads as `/wakemux:thread`.
+- The private notes section is not in the skill.
+
+Still open:
+
+- Dev layout supports pnpm only (step 4).
+- The author's local install (`~/.claude/mods/threads`, `~/.claude/skills/thread`, `~/.local/bin/cmux-aufgabe`) still runs the old version. Threads started by it use `aufgabe/` branches and the `threads-parent` note, which the new mod does not read. Switch over once no old thread is open.
 
 ## Configuration design
 
@@ -196,8 +201,8 @@ Without a marketplace: `git clone` plus `install.sh`.
 
 Estimated 4 to 6 working days in total. The estimate is not based on measurements.
 
-1. **Import.** Copy mod, skill and script into the repository layout (`.claude-plugin/`, `hooks/`, `types/`, `skills/wakemux/`, `bin/`). Tests pass unchanged. Add `AGENTS.md` with the rules from the top of this file.
-2. **Generalize.** Translate all text to English, rename commands and options, remove the hard-coded organization and paths. Tests updated first.
+1. **Import.** (Done.) Copy mod, skill and script into the repository layout (`.claude-plugin/`, `hooks/`, `types/`, `skills/thread/`, `bin/`). Tests pass unchanged. Add `AGENTS.md` with the rules from the top of this file.
+2. **Generalize.** (Done.) Translate all text to English, rename commands and options, remove the hard-coded organization and paths. Tests updated first.
 3. **Configuration layer.** Loader with the precedence above, unit tests for every source and for invalid values.
 4. **Script.** Detect pnpm, npm and bun; `shellcheck` clean; bats tests for `new` and `done`.
 5. **Report-back hardening.** Delivery check, `SendMessage` fallback, desktop notification, hop limit, deduplication. Test with an idle main session, a busy one, and one without a poller.
