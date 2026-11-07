@@ -139,7 +139,7 @@ test('invalid values of every kind are rejected', () => {
 })
 
 test('paths must stay inside the repository', () => {
-  for (const worktreeDir of ['/abs', '..', 'a/../b', '', 'a//b']) {
+  for (const worktreeDir of ['/abs', '..', 'a/../b', '', 'a//b', 'trees\ncreated\t/tmp/x', 'a\tb']) {
     expect(resolveConfig({ ...NONE, userFile: JSON.stringify({ worktreeDir }) }).config.worktreeDir).toBe('.claude/worktrees')
   }
   expect(resolveConfig({ ...NONE, userFile: JSON.stringify({ worktreeDir: 'work/trees/' }) }).config.worktreeDir).toBe('work/trees')

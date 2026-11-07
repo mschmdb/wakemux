@@ -10,6 +10,7 @@ setup() {
 	unset CMUX_WORKSPACE_ID CMUX_SURFACE_ID
 	for var in $(env | sed -n 's/^\(WAKEMUX_[A-Z_]*\)=.*/\1/p'); do unset "$var"; done
 	export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+	export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
 	export WAKEMUX_PREVIEW_TIMEOUT=0
 
 	git init -q -b main "$BATS_TEST_TMPDIR/repo"

@@ -302,3 +302,10 @@ load helpers
 	[ "$(find "$REPO/.claude/worktrees" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -eq 2 ]
 	[ ! -e "$REPO/.git/wakemux.lock" ]
 }
+
+@test "new records the repository whose info/exclude it changed" {
+	"$WAKEMUX" new rec --repo "$REPO"
+	grep -qxF "$(printf 'exclude\t%s\t.claude/worktrees/' "$REPO")" "$XDG_STATE_HOME/wakemux/manifest.tsv"
+	"$WAKEMUX" new rec2 --repo "$REPO"
+	[ "$(grep -c '^exclude' "$XDG_STATE_HOME/wakemux/manifest.tsv")" -eq 1 ]
+}

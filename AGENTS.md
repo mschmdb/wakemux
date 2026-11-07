@@ -21,6 +21,7 @@ Rules for AI coding agents working in this repository. Human contributors follow
 | `types/` | Snapshot types and the plugin state declaration. |
 | `skills/setup/SKILL.md` | Installs from a clone, runs `wakemux doctor`, writes the user's settings. Loads as `/wakemux:setup`; also read straight from a clone before install. |
 | `skills/thread/SKILL.md` | Instructions for the main session: start, orchestrate, merge and clean up threads. Loads as `/wakemux:thread`. |
+| `lib/config.py` | Settings for the script: resolve, `config set`/`unset` with backups, the manifest of changed files. Validation mirrors `hooks/config.ts`; change both together. |
 | `bin/wakemux` | Shell script. `new` creates the worktree, the branch and the cmux workspace; `done` removes the worktree and, if merged, the branch (the caller closes the workspace first). Claude Code puts `bin/` on the Bash tool's `PATH` while the plugin is enabled. |
 | `tests/` | bats tests for `bin/wakemux` and `install.sh`. |
 | `install.sh` | Install from a clone: links into the Claude Code skills folder and `~/.local/bin`. |

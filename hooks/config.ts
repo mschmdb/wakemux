@@ -116,6 +116,7 @@ function isIntegerIn(value: number, min: number, max: number): boolean {
 
 // A relative path that cannot leave the repository.
 function isInsidePath(value: string): boolean {
+  if (/[\x00-\x1f\x7f]/.test(value)) return false
   const trimmed = value.replace(/\/+$/, '')
   if (trimmed === '' || trimmed.startsWith('/')) return false
   return trimmed.split('/').every(part => part !== '' && part !== '.' && part !== '..')

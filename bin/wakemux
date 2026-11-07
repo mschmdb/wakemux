@@ -21,7 +21,10 @@ Usage:
       Checks git, python3, lsof, cmux, Claude Code, the plugin install and the settings.
 
   wakemux config [<key>] [--repo <path>]
-      Prints the settings this script uses as key=value lines, or one value.
+      Prints the resolved settings as key=value lines, or one value.
+  wakemux config set <key> <value>
+  wakemux config unset <key>
+      Changes your config.json. The first change keeps a backup for uninstall --purge.
 
   wakemux done <name> [--repo <path>]
       Removes the worktree and its branch. Stops if there are uncommitted changes,
@@ -61,112 +64,12 @@ main_checkout() {
 	dirname "$common"
 }
 
-# Prints shell assignments for the settings this script uses; warnings go to stderr.
-# Validation matches hooks/config.ts. Unknown keys are left to the mod, which reports them.
-load_config() {
-	python3 - "$1" <<'PY'
-import json, os, re, shlex, sys
+# The script's own folder, following the ~/.local/bin link, to find lib/ next to bin/.
+script_dir=$(cd "$(dirname "$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")" && pwd)
+config_py="$script_dir/../lib/config.py"
 
-repo = sys.argv[1]
-xdg = os.environ.get("XDG_CONFIG_HOME", "")
-home = os.environ.get("HOME", "")
-user_path = f"{xdg.rstrip('/')}/wakemux/config.json" if xdg.startswith("/") else (f"{home.rstrip('/')}/.config/wakemux/config.json" if home else "")
-
-def warn(text):
-    print(f"wakemux: warning: {text}", file=sys.stderr)
-
-def read_file(path, label):
-    if not path or not os.path.exists(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        warn(f"{label}: not valid JSON, file ignored")
-        return {}
-    if not isinstance(data, dict):
-        warn(f"{label}: expected a JSON object, file ignored")
-        return {}
-    return data
-
-def inside_path(value):
-    trimmed = value.rstrip("/")
-    if trimmed == "" or trimmed.startswith("/"):
-        return False
-    return all(part not in ("", ".", "..") for part in trimmed.split("/"))
-
-def ref_prefix(value):
-    if value == "" or value.startswith("/") or value.startswith("-"):
-        return False
-    if re.search(r"[\s~^:?*\[\\\x00-\x1f\x7f]|\.\.|@\{|//", value):
-        return False
-    parts = value.split("/")
-    return all(not part.startswith(".") for part in parts) and all(
-        part != "" and not part.endswith(".lock") and not part.endswith(".") for part in parts[:-1]
-    )
-
-SPEC = {
-    "worktreeDir": ("WAKEMUX_WORKTREE_DIR", "string", inside_path, ".claude/worktrees"),
-    "branchPrefix": ("WAKEMUX_BRANCH_PREFIX", "string", ref_prefix, "thread/"),
-    "copyFiles": ("WAKEMUX_COPY_FILES", "list", lambda v: all(inside_path(p) for p in v), [".env"]),
-    "devLayout": ("WAKEMUX_DEV_LAYOUT", "string", lambda v: v in ("auto", "off"), "auto"),
-    "devCommand": ("WAKEMUX_DEV_COMMAND", "string", lambda v: True, ""),
-    "maxThreads": ("WAKEMUX_MAX_THREADS", "number", lambda v: 0 <= v <= 100, 4),
-    "prStatus": ("WAKEMUX_PR_STATUS", "boolean", lambda v: True, True),
-}
-
-TRUE, FALSE = {"1", "true", "yes", "on"}, {"0", "false", "no", "off"}
-
-def from_text(kind, text):
-    if kind == "list":
-        return re.split(r"[\s,]+", text.strip())
-    if kind == "number":
-        return int(text) if re.fullmatch(r"\s*-?\d+\s*", text) else text
-    if kind == "boolean":
-        lower = text.strip().lower()
-        return True if lower in TRUE else False if lower in FALSE else text
-    return text
-
-def has_kind(kind, value):
-    if kind == "list":
-        return isinstance(value, list) and all(isinstance(item, str) for item in value)
-    if kind == "number":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if kind == "boolean":
-        return isinstance(value, bool)
-    return isinstance(value, str)
-
-repo_file = read_file(os.path.join(repo, ".wakemux.json"), ".wakemux.json") if repo else {}
-user_file = read_file(user_path, "config.json")
-
-values = {}
-for key, (env_name, kind, check, default) in SPEC.items():
-    candidates = []
-    env_text = os.environ.get(env_name, "")
-    if env_text != "":
-        candidates.append((env_name, from_text(kind, env_text)))
-    if key in repo_file:
-        candidates.append((f".wakemux.json {key}", repo_file[key]))
-    if key in user_file:
-        candidates.append((f"config.json {key}", user_file[key]))
-    values[key] = default
-    for label, value in candidates:
-        if kind == "list" and isinstance(value, list):
-            value = [item for item in value if item != ""]
-        if has_kind(kind, value) and check(value):
-            values[key] = value.rstrip("/") if key == "worktreeDir" else value
-            break
-        warn(f"{label}: invalid value {json.dumps(value)[:60]}, ignored")
-
-print(f"cfg_worktree_dir={shlex.quote(values['worktreeDir'])}")
-print(f"cfg_branch_prefix={shlex.quote(values['branchPrefix'])}")
-print("cfg_copy_files=(" + " ".join(shlex.quote(item) for item in values["copyFiles"]) + ")")
-print(f"cfg_dev_layout={shlex.quote(values['devLayout'])}")
-print(f"cfg_dev_command={shlex.quote(values['devCommand'])}")
-print(f"cfg_max_threads={values['maxThreads']}")
-print(f"cfg_pr_status={'true' if values['prStatus'] else 'false'}")
-PY
-}
+# Prints shell assignments for the settings; warnings go to stderr.
+load_config() { python3 -I "$config_py" resolve "$1"; }
 
 # Prints the dev server command with a {port} placeholder, or nothing when no dev layout applies.
 dev_command() {
@@ -293,7 +196,11 @@ ensure_excluded() {
 	local repo=$1 pattern="$2/" exclude
 	exclude="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
 	mkdir -p "$(dirname "$exclude")"
-	grep -qxF -- "$pattern" "$exclude" 2>/dev/null || echo "$pattern" >>"$exclude"
+	if ! grep -qxF -- "$pattern" "$exclude" 2>/dev/null; then
+		echo "$pattern" >>"$exclude"
+		# Noted so that uninstall --purge can take the line out again.
+		python3 -I "$config_py" record "$repo" "$pattern"
+	fi
 }
 
 # A copied file must not land outside the worktree through a symlink the base ref contains.
@@ -507,18 +414,13 @@ cmd_doctor() {
 }
 
 cmd_config() {
-	local key=$1
-	local -a lines=(
-		"worktreeDir=$cfg_worktree_dir"
-		"branchPrefix=$cfg_branch_prefix"
-		"copyFiles=${cfg_copy_files[*]+${cfg_copy_files[*]}}"
-		"devLayout=$cfg_dev_layout"
-		"devCommand=$cfg_dev_command"
-		"maxThreads=$cfg_max_threads"
-		"prStatus=$cfg_pr_status"
-	)
+	local key=${1:-}
+	case $key in
+	set) [ $# -eq 3 ] || die "usage: wakemux config set <key> <value>"; python3 -I "$config_py" set "$2" "$3"; return ;;
+	unset) [ $# -eq 2 ] || die "usage: wakemux config unset <key>"; python3 -I "$config_py" unset "$2"; return ;;
+	esac
 	local line
-	for line in "${lines[@]}"; do
+	for line in "${cfg_lines[@]}"; do
 		if [ -z "$key" ]; then
 			echo "$line"
 		elif [ "${line%%=*}" = "$key" ]; then
@@ -535,12 +437,12 @@ case $1 in -h | --help) usage; exit 0 ;; esac
 mode=$1
 shift
 case $mode in new | done | config | doctor) ;; *) die "unknown command: $mode" ;; esac
-name=""
+name="" config_args=()
 if [ "$mode" = "doctor" ]; then
 	:
 elif [ "$mode" = "config" ]; then
-	# An optional setting name instead of a thread name.
-	if [ $# -gt 0 ] && [[ $1 != --* ]]; then name=$1; shift; fi
+	# A setting name, or set/unset with their arguments, instead of a thread name.
+	while [ $# -gt 0 ] && [[ $1 != --* ]]; do config_args+=("$1"); shift; done
 else
 	name=${1:-}
 	[ -n "$name" ] || die "name missing"
@@ -569,12 +471,17 @@ if [ "$mode" = "doctor" ]; then
 	cmd_doctor "$repo"
 	exit
 fi
-repo=$(main_checkout "$repo_arg")
-cfg_worktree_dir="" cfg_branch_prefix="" cfg_copy_files=() cfg_dev_layout="" cfg_dev_command="" cfg_max_threads=0 cfg_pr_status=true
+if [ "$mode" = "config" ]; then
+	# Settings also exist outside a repository, without its .wakemux.json.
+	repo=$(main_checkout "$repo_arg" 2>/dev/null) || repo=""
+else
+	repo=$(main_checkout "$repo_arg")
+fi
+cfg_worktree_dir="" cfg_branch_prefix="" cfg_copy_files=() cfg_dev_layout="" cfg_dev_command="" cfg_max_threads=0 cfg_lines=()
 config=$(load_config "$repo")
 eval "$config"
 if [ "$mode" = "config" ]; then
-	cmd_config "$name"
+	cmd_config ${config_args[@]+"${config_args[@]}"}
 elif [ "$mode" = "done" ]; then
 	cmd_done "$name" "$repo"
 else

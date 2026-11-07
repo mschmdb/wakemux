@@ -16,6 +16,16 @@ An invalid value produces a warning, and the next source down applies. The mod a
 
 The script `wakemux` runs as a shell command and cannot see the plugin's options dialog. It reads sources 1, 3, 4 and 5. `wakemux config` prints what it resolved.
 
+Change your own settings file with:
+
+```sh
+wakemux config set maxThreads 6
+wakemux config set prRequiredOrgs "acme, beta"
+wakemux config unset maxThreads
+```
+
+`set` validates the value and keeps the file's other keys. The first change backs up the original file so that `install.sh --uninstall --purge` can restore it ([install](install.md#uninstall-and-restore)).
+
 ## Settings
 
 | Key | Default | Values | Read by |
