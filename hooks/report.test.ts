@@ -57,6 +57,9 @@ function fakeWorld(on: On, world: World): Log {
         log.texts.push(e.init?.stdin ?? '')
         return ok(world.sendAnswer ? world.sendAnswer(argv[3] ?? '') : '')
       }
+      if (argv[1] === 'agent' && argv[2] === 'messages' && argv[3] === 'status') {
+        return ok(JSON.stringify({ id: 'PARENT-SURFACE', scope: 'surface', receiving: true }))
+      }
       if (argv[1] === 'agent' && argv[2] === 'inbox') {
         const state = world.inboxStates?.shift() ?? world.inboxState ?? 'queued'
         return ok(JSON.stringify({ messages: [{ id: 'm1', state }] }))
@@ -144,8 +147,10 @@ test('when Claude Code cannot deliver either, the user gets a desktop notificati
   const log = fakeWorld(on, { parent: 'workspace:3', session: SESSION, sendAnswer: () => sent('queued'), inboxState: 'queued' })
   await complete($, log, 'Done. Which colour?')
   expect(log.sessionSends.length).toBe(1)
+  // cmux ignores --workspace when the caller has a workspace of its own; a surface id resolves globally.
   const [call] = notifications(log)
-  expect(call).toContain('workspace:3')
+  expect(call?.slice(call.indexOf('--surface'), call.indexOf('--surface') + 2)).toEqual(['--surface', 'S1'])
+  expect(call).not.toContain('--workspace')
   expect(call).toContain('Done. Which colour?')
 })
 
@@ -191,6 +196,8 @@ test('reports on one commit escalate at maxHops and pause after one notification
   expect(log.texts[1]).toContain('2 reports in a row without a new commit')
   expect(notifications(log).length).toBe(1)
   expect(notifications(log)[0]?.join(' ')).toContain('Reports pause until the thread commits')
+  // No message went out for this report, so the parent's surface comes from cmux agent messages status.
+  expect(notifications(log)[0]?.join(' ')).toContain('--surface PARENT-SURFACE')
 })
 
 test('a new commit starts the hop count again', async ($, on) => {

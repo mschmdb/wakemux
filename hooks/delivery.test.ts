@@ -11,6 +11,7 @@ import {
   parseSent,
   parseSessionId,
   keepWaiting,
+  parseAgentSurface,
   reportKey,
 } from './delivery'
 
@@ -123,4 +124,10 @@ test('keepWaiting waits while the receiving session works, up to ten minutes', (
   expect(keepWaiting('Running', 600_000)).toBe(false)
   expect(keepWaiting('Idle', 15_000)).toBe(false)
   expect(keepWaiting('', 15_000)).toBe(false)
+})
+
+test('parseAgentSurface reads the agent surface id from cmux agent messages status', () => {
+  expect(parseAgentSurface(JSON.stringify({ id: 'A0D2085B-2E2C-4DB1-BA58-08BFE3AC79C0', scope: 'surface' }))).toBe('A0D2085B-2E2C-4DB1-BA58-08BFE3AC79C0')
+  expect(parseAgentSurface(JSON.stringify({ scope: 'surface' }))).toBe('')
+  expect(parseAgentSurface('nope')).toBe('')
 })

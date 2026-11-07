@@ -48,6 +48,12 @@ export function keepWaiting(agentStatus: string, waitedMs: number): boolean {
   return agentStatus.startsWith('Running') && waitedMs < BUSY_WAIT_MS
 }
 
+// The agent surface of a workspace, from `cmux agent messages status <workspace> --json`.
+export function parseAgentSurface(json: string): string {
+  const id = asRecord(parseJson(json))?.id
+  return typeof id === 'string' ? id : ''
+}
+
 export type Hops = { head: string; count: number }
 
 // A hop is a report on the same commit as the one before it.

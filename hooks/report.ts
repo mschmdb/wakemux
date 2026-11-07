@@ -25,6 +25,7 @@ import {
   messageState,
   nextHops,
   notifyBody,
+  parseAgentSurface,
   parseSent,
   parseSessionId,
   reportKey,
@@ -106,9 +107,18 @@ async function isPickedUp($: Dollar, sent: Sent, target: string): Promise<boolea
   }
 }
 
-async function notify($: Dollar, workspace: string, slug: string, body: string) {
+async function agentSurface($: Dollar, workspace: string): Promise<string> {
+  if (!workspace) return ''
+  return parseAgentSurface((await cmux($, 'agent', 'messages', 'status', workspace, '--json')).stdout)
+}
+
+// cmux ignores --workspace when the caller sits in a workspace of its own, as a thread does, and
+// posts to the caller. A surface id resolves globally, so the notification targets the parent's surface.
+async function notify($: Dollar, surface: string, slug: string, body: string) {
   const argv = ['cmux', 'notify', '--title', `wakemux: thread ${slug}`, '--body', body]
-  if (workspace) argv.push('--workspace', workspace)
+  // Without a known parent surface it posts to the thread's own workspace. The desktop banner,
+  // titled with the thread, still reaches the user, which is the point of this last channel.
+  if (surface) argv.push('--surface', surface)
   await run($, argv, undefined, { CMUX_QUIET: '1' })
 }
 
@@ -127,7 +137,7 @@ async function deliver($: Dollar, ctx: ThreadContext, text: string) {
       $.ui.log(`wakemux: forwarding the report from ${ctx.slug} failed: ${String(error)}`, { to: 'debug' })
     }
   }
-  await notify($, target, ctx.slug, notifyBody(text))
+  await notify($, sent?.surfaceId || (await agentSurface($, target)), ctx.slug, notifyBody(text))
   $.ui.log(`wakemux: report from ${ctx.slug} not delivered; sent a desktop notification.`, { to: 'debug' })
 }
 
@@ -178,7 +188,7 @@ export async function sendReport($: Dollar, reason: Report['reason'], answer: st
       return
     case 'notify': {
       const parent = parseParent(await readNote($, `${ctx.gitDir}/wakemux-parent`))
-      await notify($, parent, ctx.slug, `${decision.count} reports in a row without a new commit. Reports pause until the thread commits.`)
+      await notify($, await agentSurface($, parent), ctx.slug, `${decision.count} reports in a row without a new commit. Reports pause until the thread commits.`)
       return
     }
     case 'escalate': {
