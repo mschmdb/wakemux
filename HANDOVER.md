@@ -100,7 +100,7 @@ Implemented in step 3 in `hooks/config.ts` (pure, tested in `hooks/config.test.t
 | `mergePolicy` | `repo-rules` | `repo-rules`, `pr`, `merge` | not yet (skill) |
 | `scriptPath` | empty (bundled `bin/wakemux`) | absolute path; not settable from `.wakemux.json` | mod |
 | `maxThreads` | `4` | integer 0 to 100, `0` means unlimited | not yet (step 5) |
-| `maxHops` | `6` | integer 0 to 100 | not yet (step 5) |
+| `maxHops` | `6` | integer 0 to 100, `0` turns the limit off | mod |
 | `prStatus` | `true` | boolean | not yet (step 6) |
 | `crossReview` | `off` | `off` or a command name (`a-z0-9-`) | not yet (skill) |
 
@@ -154,14 +154,14 @@ One long-running main session (started with `claude --continue`) was never woken
 
 Test: with the test session's poller killed, a `SendMessage` from another session woke it at once. The queued cmux message arrived in the same turn, and after that turn a new `inbox-wait` poller was running again.
 
-Planned design:
+Implemented in step 5 (`hooks/report.ts`, `hooks/delivery.ts`):
 
-1. The thread sends its report with `cmux agent message`, as today.
-2. After about 15 s the sender checks the message state (`cmux agent inbox --json`).
-3. If it is still `queued`, the sender wakes the thread itself with a cmux message (threads woke reliably in every test) and asks it to forward the report with `SendMessage` to the main session.
-4. If the main session is not reachable either, send a desktop notification to the user (`cmux notify`).
+1. The thread sends its report with `cmux agent message --json` to the parent workspace, else to the main checkout's workspace. A target whose `recipient_has_agent` is false is skipped.
+2. If the message is still `queued` after 15 s (`cmux agent inbox --surface <id> --json`), the thread's mod sends the report with `$.session.send` (the SendMessage tool's call, no model turn) to the parent's Claude Code session id. Every session publishes its id as `WAKEMUX_PARENT_SESSION` with `$.env.set`, and `wakemux new` stores it in `<git-dir>/wakemux-parent-session`.
+3. If that is not delivered either, `cmux notify` shows a desktop notification on the parent workspace.
+4. Identical reports within 60 s are sent once. Reports on the same commit count as hops: at `maxHops` the report asks the main session to escalate, one report later the user gets a notification, after that reports pause until a new commit.
 
-To make step 3 work, `wakemux new` stores the main session's `ListAgents` name next to the parent workspace ID.
+Tested with the plugin test kit against faked cmux, git and session answers. Not yet tested live: an idle main session, a busy one, and one without an `inbox-wait` poller. Also unverified: whether `$.session.send` reaches a session in the failure state described above (it was not listed by `ListAgents`).
 
 ### cmux events and automations
 
@@ -215,7 +215,7 @@ Estimated 4 to 6 working days in total. The estimate is not based on measurement
 2. **Generalize.** (Done.) Translate all text to English, rename commands and options, remove the hard-coded organization and paths. Tests updated first.
 3. **Configuration layer.** (Done.) Loader with the precedence above, unit tests for every source and for invalid values.
 4. **Script.** (Done.) Detect pnpm, npm and bun; `shellcheck` clean; bats tests for `new` and `done`.
-5. **Report-back hardening.** Delivery check, `SendMessage` fallback, desktop notification, hop limit, deduplication. Test with an idle main session, a busy one, and one without a poller.
+5. **Report-back hardening.** (Done in code, live tests open.) Delivery check, `SendMessage` fallback, desktop notification, hop limit, deduplication. Test with an idle main session, a busy one, and one without a poller.
 6. **Status in the cmux sidebar.** Evaluate `cmux set-status`, `cmux set-progress` and `cmux pr` as a replacement for, or addition to, the pane.
 7. **Install paths.** Marketplace and `install.sh`, tested on a fresh macOS user account.
 8. **Second machine.** Same behavior on the author's Mac mini (cmux version, hooks, `PATH`).

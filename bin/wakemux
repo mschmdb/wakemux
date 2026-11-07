@@ -301,8 +301,14 @@ cmd_new() {
 	trap rollback EXIT
 
 	# The wakemux mod reports back to the session that started the thread, even across repos.
+	# The parent's Claude Code session id (set by the wakemux mod) is the fallback channel.
+	local git_dir session=${WAKEMUX_PARENT_SESSION:-}
+	git_dir=$(git -C "$wt" rev-parse --absolute-git-dir)
 	if [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
-		echo "$CMUX_WORKSPACE_ID" >"$(git -C "$wt" rev-parse --absolute-git-dir)/wakemux-parent"
+		echo "$CMUX_WORKSPACE_ID" >"$git_dir/wakemux-parent"
+	fi
+	if [[ $session =~ ^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|session_[A-Za-z0-9]+)$ ]]; then
+		echo "$session" >"$git_dir/wakemux-parent-session"
 	fi
 	local file
 	for file in ${cfg_copy_files[@]+"${cfg_copy_files[@]}"}; do

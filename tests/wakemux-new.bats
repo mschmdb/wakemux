@@ -257,3 +257,15 @@ load helpers
 	[ "$status" -eq 0 ]
 	layout_matches 'npm run dev -- --port [0-9]+ --strictPort'
 }
+
+@test "new stores the parent Claude Code session for the fallback report" {
+	WAKEMUX_PARENT_SESSION=8c4667e8-d867-4c6b-b592-663cf1c845b2 run "$WAKEMUX" new session --repo "$REPO"
+	[ "$status" -eq 0 ]
+	[ "$(cat "$(git -C "$REPO/.claude/worktrees/session" rev-parse --absolute-git-dir)/wakemux-parent-session")" = "8c4667e8-d867-4c6b-b592-663cf1c845b2" ]
+}
+
+@test "new ignores a parent session value that is not a session id" {
+	WAKEMUX_PARENT_SESSION='../../x' run "$WAKEMUX" new nosession --repo "$REPO"
+	[ "$status" -eq 0 ]
+	[ ! -e "$(git -C "$REPO/.claude/worktrees/nosession" rev-parse --absolute-git-dir)/wakemux-parent-session" ]
+}

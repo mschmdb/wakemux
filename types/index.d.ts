@@ -29,6 +29,8 @@ declare module 'claude-code' {
       snapshot: Shaped<Snapshot>
       confirm: Shaped<string>
       message: Shaped<string>
+      hops: Shaped<{ head: string; count: number }>
+      lastReport: Shaped<{ key: string; at: number }>
     }
   }
 }

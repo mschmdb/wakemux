@@ -36,6 +36,10 @@ Threads report on their own. At the end of every thread turn, the wakemux mod se
 
 The main session then acts as the orchestrator. The user should only have to watch this session.
 
+If cmux does not pick a report up within 15 seconds, the mod forwards it through Claude Code to this session; that copy ends with "answer once", and the same report may arrive again from cmux later. Answer it once. If neither channel works, the user gets a desktop notification instead.
+
+A report that ends with `[wakemux] N reports in a row without a new commit` means the thread and this session are going back and forth without progress (setting `maxHops`, default 6). Do not answer the thread. Tell the user what the thread wants and ask how to go on. After one more report the mod stops reporting until the thread commits, and the user gets a desktop notification.
+
 1. **Read:** Is the thread done, does it ask something, or does it only report progress? Acknowledgements need no answer.
 2. **Answer yourself** what the issue, the repository rules (CLAUDE.md, AGENTS.md, memory) or an earlier decision of the user already settle. Reply to the thread with `SendMessage` to its session name (`ListAgents`, the name starts with the slug) or with `cmux agent message <workspace> "<text>"`.
 3. **Escalate to the user** anything about taste, new data or content decisions, cost, permissions, deploys or other people's PRs. Collect the questions and present them together. The affected thread waits; the others keep running.

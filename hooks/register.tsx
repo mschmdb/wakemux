@@ -1,22 +1,11 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Register } from 'claude-code'
 
 import type { Snapshot, ThreadRow } from '../types'
-import type { Config, EnvName } from './config'
-import { REPO_FILE, resolveConfig, userConfigPath } from './config'
-import type { Report } from './parse'
-import {
-  handOverPrompt,
-  isPrRequiredRemote,
-  parseAgentStatus,
-  parseCounts,
-  parseCwd,
-  parseParent,
-  parseWorktrees,
-  reportText,
-  threadSlugOf,
-  workspaceRefsByTitle,
-} from './parse'
+import type { Dollar } from './engine'
+import { cmux, dirtyCount, git, isMainSession, loadConfig, mainCheckout, run, setPluginOptions } from './engine'
+import { handOverPrompt, isPrRequiredRemote, parseAgentStatus, parseCounts, parseCwd, parseWorktrees, workspaceRefsByTitle } from './parse'
+import { publishSessionId, sendReport } from './report'
 
 const PANE = 'threads'
 const TITLE = 'Threads'
@@ -29,47 +18,8 @@ const snapshot = atom({ plugin: 'wakemux', key: 'snapshot' } as const, EMPTY, { 
 const confirm = atom({ plugin: 'wakemux', key: 'confirm' } as const, '', { shape: 'confirm-1' })
 const message = atom({ plugin: 'wakemux', key: 'message' } as const, '', { shape: 'message-1' })
 
-type Dollar = EngineInterface
-
-type Run = { exitCode: number; stdout: string; stderr: string }
-
 // Module variable: a reload drops it, and session.start starts the timer again.
 let timer: { cancel: () => void } | undefined
-// The plugin's userConfig values; register receives them on every load.
-let pluginOptions: Readonly<Record<string, unknown>> = {}
-
-async function run($: Dollar, argv: string[], cwd?: string, env?: Record<string, string>, stdin?: string): Promise<Run> {
-  try {
-    return await $.process.run(argv, { cwd, env, stdin, timeoutMs: 20_000 })
-  } catch (error) {
-    return { exitCode: 127, stdout: '', stderr: String(error) }
-  }
-}
-
-function git($: Dollar, cwd: string, ...args: string[]) {
-  return run($, ['git', '-C', cwd, ...args])
-}
-function cmux($: Dollar, ...args: string[]) {
-  return run($, ['cmux', ...args], undefined, { CMUX_QUIET: '1' })
-}
-
-async function mainCheckout($: Dollar): Promise<string> {
-  const common = await git($, '.', 'rev-parse', '--path-format=absolute', '--git-common-dir')
-  if (common.exitCode !== 0) return ''
-  return common.stdout.trim().replace(/\/\.git\/?$/, '')
-}
-
-// Threads are run from the main checkout; a thread's own session must not merge itself.
-async function isMainSession($: Dollar): Promise<boolean> {
-  const repo = await mainCheckout($)
-  const top = (await git($, '.', 'rev-parse', '--show-toplevel')).stdout.trim()
-  return repo !== '' && top === repo
-}
-
-async function dirtyCount($: Dollar, cwd: string, untracked: boolean): Promise<number> {
-  const status = await git($, cwd, 'status', '--porcelain', untracked ? '-unormal' : '-uno')
-  return status.stdout.split('\n').filter(Boolean).length
-}
 
 async function findWorkspace($: Dollar, slug: string, path: string, refs: Map<string, string[]>) {
   for (const ref of refs.get(slug) ?? []) {
@@ -77,51 +27,6 @@ async function findWorkspace($: Dollar, slug: string, path: string, refs: Map<st
     if (parseCwd(state) === path) return { ref, agent: parseAgentStatus(state) }
   }
   return { ref: '', agent: '' }
-}
-
-async function readOptional($: Dollar, path: string): Promise<string | undefined> {
-  if (!path || !(await $.fs.exists(path))) return undefined
-  try {
-    return await $.fs.read(path)
-  } catch (error) {
-    // An unreadable file must not look like an empty one: hand back text that fails to parse.
-    return `unreadable: ${String(error)}`
-  }
-}
-
-// $.env.get takes string literals only, so every variable is spelled out.
-// Typed by EnvName, so a setting added to config.ts without a line here fails the type check.
-async function readEnv($: Dollar): Promise<Record<EnvName, string | undefined>> {
-  return {
-    HOME: await $.env.get('HOME'),
-    XDG_CONFIG_HOME: await $.env.get('XDG_CONFIG_HOME'),
-    WAKEMUX_WORKTREE_DIR: await $.env.get('WAKEMUX_WORKTREE_DIR'),
-    WAKEMUX_BRANCH_PREFIX: await $.env.get('WAKEMUX_BRANCH_PREFIX'),
-    WAKEMUX_COPY_FILES: await $.env.get('WAKEMUX_COPY_FILES'),
-    WAKEMUX_DEV_LAYOUT: await $.env.get('WAKEMUX_DEV_LAYOUT'),
-    WAKEMUX_DEV_COMMAND: await $.env.get('WAKEMUX_DEV_COMMAND'),
-    WAKEMUX_REPORT: await $.env.get('WAKEMUX_REPORT'),
-    WAKEMUX_REPORT_MAX_BYTES: await $.env.get('WAKEMUX_REPORT_MAX_BYTES'),
-    WAKEMUX_PR_REQUIRED_ORGS: await $.env.get('WAKEMUX_PR_REQUIRED_ORGS'),
-    WAKEMUX_MERGE_POLICY: await $.env.get('WAKEMUX_MERGE_POLICY'),
-    WAKEMUX_SCRIPT_PATH: await $.env.get('WAKEMUX_SCRIPT_PATH'),
-    WAKEMUX_MAX_THREADS: await $.env.get('WAKEMUX_MAX_THREADS'),
-    WAKEMUX_MAX_HOPS: await $.env.get('WAKEMUX_MAX_HOPS'),
-    WAKEMUX_PR_STATUS: await $.env.get('WAKEMUX_PR_STATUS'),
-    WAKEMUX_CROSS_REVIEW: await $.env.get('WAKEMUX_CROSS_REVIEW'),
-  }
-}
-
-async function loadConfig($: Dollar, repo: string): Promise<{ config: Config; warnings: string[] }> {
-  const env = await readEnv($)
-  const { config, warnings } = resolveConfig({
-    env,
-    options: pluginOptions,
-    repoFile: repo ? await readOptional($, `${repo}/${REPO_FILE}`) : undefined,
-    userFile: await readOptional($, userConfigPath(env)),
-  })
-  for (const warning of warnings) $.ui.log(`wakemux: ${warning}`, { to: 'debug' })
-  return { config, warnings }
 }
 
 async function collect($: Dollar): Promise<Snapshot> {
@@ -216,76 +121,26 @@ async function removeThread($: Dollar, slug: string) {
   await refresh($)
 }
 
-// ---- Report back: a thread session tells the main session whenever its turn ends ----
-// cmux delivers `agent message` through the receiver's hooks: an idle main session wakes up,
-// a busy one reads it at its next step. Target: the spawning session, else the main checkout's.
-// Opt out with the setting report (WAKEMUX_REPORT=0).
-
-type ThreadContext = { slug: string; main: string }
-let context: ThreadContext | null | undefined
-let mainRef = ''
-
-async function threadContext($: Dollar): Promise<ThreadContext | null> {
-  if (context !== undefined) return context
-  const main = await mainCheckout($)
-  const top = (await git($, '.', 'rev-parse', '--show-toplevel')).stdout.trim()
-  const { config } = await loadConfig($, main)
-  const slug = threadSlugOf(top, main, config.worktreeDir)
-  context = slug ? { slug, main } : null
-  return context
-}
-
-// The main session is the workspace whose cwd is the main checkout. Titles like "main" repeat across projects.
-async function findMainRef($: Dollar, main: string): Promise<string> {
-  const refs = [...workspaceRefsByTitle((await cmux($, 'tree', '--all', '--json')).stdout).values()].flat()
-  for (const ref of refs) {
-    if (parseCwd((await cmux($, 'sidebar-state', '--workspace', ref)).stdout) === main) return ref
-  }
-  return ''
-}
-
-async function sendReport($: Dollar, reason: Report['reason'], answer: string) {
-  const ctx = await threadContext($)
-  if (!ctx) return
-  const { config } = await loadConfig($, ctx.main)
-  if (!config.report) return
-  const base = (await git($, ctx.main, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
-  const branch = (await git($, '.', 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
-  const ahead = Number((await git($, '.', 'rev-list', '--count', `${base}..HEAD`)).stdout.trim()) || 0
-  const text = reportText({ slug: ctx.slug, branch, ahead, dirty: await dirtyCount($, '.', true), reason, answer }, config.reportMaxBytes)
-  // First choice: the session that started the thread (may sit in another repo). Fallback: the main checkout's session.
-  const gitDir = (await git($, '.', 'rev-parse', '--absolute-git-dir')).stdout.trim()
-  const parent = gitDir ? parseParent((await run($, ['/bin/cat', gitDir + '/wakemux-parent'])).stdout) : ''
-  if (parent) {
-    const sent = await run($, ['cmux', 'agent', 'message', parent, '--from', ctx.slug, '-'], undefined, { CMUX_QUIET: '1' }, text)
-    if (sent.exitCode === 0) return
-  }
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (!mainRef) mainRef = await findMainRef($, ctx.main)
-    if (!mainRef) break
-    const sent = await run($, ['cmux', 'agent', 'message', mainRef, '--from', ctx.slug, '-'], undefined, { CMUX_QUIET: '1' }, text)
-    if (sent.exitCode === 0) return
-    mainRef = ''
-  }
-  $.ui.log(`wakemux: report from ${ctx.slug} not delivered (no main session found).`, { to: 'debug' })
-}
-
 async function openWorkspace($: Dollar, thread: ThreadRow) {
   if (!thread.workspaceRef) return say($, `${thread.slug}: no open workspace.`)
   await cmux($, 'select-workspace', '--workspace', thread.workspaceRef)
 }
 
 export const register: Register = (on, options) => {
-  pluginOptions = options
+  setPluginOptions(options)
   // Only the main loop reports; a subagent's end inside the thread is not the thread's answer.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (!e.agentId) void sendReport($, e.reason, e.answer)
+    if (!e.agentId) {
+      publishSessionId($).catch(() => undefined)
+      sendReport($, e.reason, e.answer).catch(error => $.ui.log(`wakemux: report failed: ${String(error)}`, { to: 'debug' }))
+    }
     return result
   })
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    await publishSessionId($)
     await $.command.register({ name: 'threads', description: 'Show or hide the threads pane' })
     const state = await refresh($)
     const isMainCheckout = await isMainSession($)
