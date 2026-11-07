@@ -15,12 +15,6 @@
       "title": "Organizations that require PRs",
       "description": "GitHub organizations whose repositories always land threads through a pull request."
     },
-    "copyFiles": {
-      "type": "string",
-      "multiple": true,
-      "title": "Files copied into each thread",
-      "description": "Git-ignored files copied from the main checkout into each new worktree. Empty means .env."
-    },
     "crossReview": {
       "type": "string",
       "title": "Cross-provider review command",

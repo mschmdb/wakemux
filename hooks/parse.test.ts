@@ -14,6 +14,7 @@ import {
 } from './parse'
 
 const MAIN = '/Users/m/Sites/app'
+const DIR = '.claude/worktrees'
 
 test('parseWorktrees keeps only threads under .claude/worktrees', () => {
   const porcelain = [
@@ -32,7 +33,7 @@ test('parseWorktrees keeps only threads under .claude/worktrees', () => {
     '/elsewhere',
   ].join('\n')
 
-  expect(parseWorktrees(porcelain, MAIN)).toEqual([
+  expect(parseWorktrees(porcelain, MAIN, DIR)).toEqual([
     {
       slug: 'og-images',
       path: `${MAIN}/.claude/worktrees/og-images`,
@@ -43,7 +44,7 @@ test('parseWorktrees keeps only threads under .claude/worktrees', () => {
 })
 
 test('parseWorktrees returns nothing for a repo without threads', () => {
-  expect(parseWorktrees(`worktree ${MAIN}\nHEAD 1\nbranch refs/heads/main\n`, MAIN)).toEqual([])
+  expect(parseWorktrees(`worktree ${MAIN}\nHEAD 1\nbranch refs/heads/main\n`, MAIN, DIR)).toEqual([])
 })
 
 test('parseCounts reads behind and ahead from rev-list --left-right', () => {
@@ -109,12 +110,12 @@ test('handOverPrompt names thread, branch and base and points to the repo rules'
 })
 
 test('threadSlugOf finds the thread slug only inside .claude/worktrees of the main checkout', () => {
-  expect(threadSlugOf(MAIN + '/.claude/worktrees/og-images', MAIN)).toBe('og-images')
-  expect(threadSlugOf(MAIN + '/.claude/worktrees/og-images/src', MAIN)).toBe('og-images')
-  expect(threadSlugOf(MAIN, MAIN)).toBe('')
-  expect(threadSlugOf('/Users/m/Sites/other/.claude/worktrees/x', MAIN)).toBe('')
-  expect(threadSlugOf(MAIN + '/.claude/worktrees/', MAIN)).toBe('')
-  expect(threadSlugOf('', '')).toBe('')
+  expect(threadSlugOf(MAIN + '/.claude/worktrees/og-images', MAIN, DIR)).toBe('og-images')
+  expect(threadSlugOf(MAIN + '/.claude/worktrees/og-images/src', MAIN, DIR)).toBe('og-images')
+  expect(threadSlugOf(MAIN, MAIN, DIR)).toBe('')
+  expect(threadSlugOf('/Users/m/Sites/other/.claude/worktrees/x', MAIN, DIR)).toBe('')
+  expect(threadSlugOf(MAIN + '/.claude/worktrees/', MAIN, DIR)).toBe('')
+  expect(threadSlugOf('', '', DIR)).toBe('')
 })
 
 test('reportText leads with the thread, its state and the answer, and stays below the message limit', () => {
@@ -194,4 +195,12 @@ test('reportText keeps the whole message within the byte limit it is given', () 
 
   const fits = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: 'x'.repeat(900) }, 1_000)
   expect(fits).not.toContain('truncated')
+})
+
+test('a configured worktree folder replaces .claude/worktrees', () => {
+  const porcelain = [`worktree ${MAIN}`, 'HEAD 1', 'branch refs/heads/main', '', `worktree ${MAIN}/trees/x`, 'HEAD 2', 'branch refs/heads/task/x', '', `worktree ${MAIN}/.claude/worktrees/y`, 'HEAD 3', 'branch refs/heads/thread/y', ''].join('\n')
+  expect(parseWorktrees(porcelain, MAIN, 'trees')).toEqual([{ slug: 'x', path: `${MAIN}/trees/x`, branch: 'task/x' }])
+  expect(threadSlugOf(`${MAIN}/trees/x/src`, MAIN, 'trees')).toBe('x')
+  expect(threadSlugOf(`${MAIN}/treesx/y`, MAIN, 'trees')).toBe('')
+  expect(threadSlugOf(`${MAIN}/.claude/worktrees/y`, MAIN, 'trees')).toBe('')
 })

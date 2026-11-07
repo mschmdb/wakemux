@@ -129,7 +129,7 @@ async function collect($: Dollar): Promise<Snapshot> {
   if (!repo) return { ...EMPTY, error: 'Not a git repository.' }
   const { config, warnings } = await loadConfig($, repo)
   const base = (await git($, repo, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
-  const worktrees = parseWorktrees((await git($, repo, 'worktree', 'list', '--porcelain')).stdout, repo)
+  const worktrees = parseWorktrees((await git($, repo, 'worktree', 'list', '--porcelain')).stdout, repo, config.worktreeDir)
   const refs = workspaceRefsByTitle((await cmux($, 'tree', '--all', '--json')).stdout)
 
   const threads: ThreadRow[] = []
@@ -229,7 +229,8 @@ async function threadContext($: Dollar): Promise<ThreadContext | null> {
   if (context !== undefined) return context
   const main = await mainCheckout($)
   const top = (await git($, '.', 'rev-parse', '--show-toplevel')).stdout.trim()
-  const slug = threadSlugOf(top, main)
+  const { config } = await loadConfig($, main)
+  const slug = threadSlugOf(top, main, config.worktreeDir)
   context = slug ? { slug, main } : null
   return context
 }

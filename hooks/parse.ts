@@ -2,10 +2,9 @@
 
 export type Worktree = { slug: string; path: string; branch: string }
 
-const THREADS_DIR = '/.claude/worktrees/'
-
-export function parseWorktrees(porcelain: string, mainPath: string): Worktree[] {
-  const prefix = mainPath + THREADS_DIR
+// worktreeDir is the setting of the same name: relative to the main checkout, no trailing slash.
+export function parseWorktrees(porcelain: string, mainPath: string, worktreeDir: string): Worktree[] {
+  const prefix = `${mainPath}/${worktreeDir}/`
   const result: Worktree[] = []
   for (const block of porcelain.split(/\n\s*\n/)) {
     const lines = block.split('\n')
@@ -91,10 +90,10 @@ export function handOverPrompt(thread: HandOverThread, base: string, prRequired:
   return facts.filter(Boolean).join(' ')
 }
 
-// A session is a thread when its working copy sits in <main>/.claude/worktrees/<slug>.
-export function threadSlugOf(top: string, mainPath: string): string {
+// A session is a thread when its working copy sits in <main>/<worktreeDir>/<slug>.
+export function threadSlugOf(top: string, mainPath: string, worktreeDir: string): string {
   if (!top || !mainPath) return ''
-  const prefix = mainPath + THREADS_DIR
+  const prefix = `${mainPath}/${worktreeDir}/`
   if (!top.startsWith(prefix)) return ''
   return top.slice(prefix.length).split('/')[0] ?? ''
 }
