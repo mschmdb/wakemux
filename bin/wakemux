@@ -45,6 +45,8 @@ Settings, highest precedence first: WAKEMUX_<KEY> environment variables,
 Environment:
   WAKEMUX_PREVIEW_TIMEOUT  seconds to wait for the dev server before giving up
                            on the browser reload (default 180)
+  WAKEMUX_DONE_WAIT        seconds wakemux done waits for processes in the worktree
+                           to end, e.g. after closing its workspace (default 10)
 EOF
 }
 
@@ -347,9 +349,13 @@ cmd_done() {
 	if ! git -C "$wt" symbolic-ref -q HEAD >/dev/null && [ -z "$(git -C "$wt" for-each-ref --contains HEAD --format='%(refname)' refs/heads)" ]; then
 		die "$wt is on a detached HEAD with commits no branch holds; create a branch for them first"
 	fi
-	if worktree_in_use "$wt"; then
-		die "processes still run in $wt, close the workspace first"
-	fi
+	# A workspace closed a moment ago may still be ending its processes.
+	local waited=0 limit=${WAKEMUX_DONE_WAIT:-10}
+	while worktree_in_use "$wt"; do
+		[ "$waited" -lt "$limit" ] 2>/dev/null || die "processes still run in $wt, close the workspace first"
+		sleep 1
+		waited=$((waited + 1))
+	done
 
 	git -C "$repo" worktree remove --force "$wt"
 	if git -C "$repo" branch -d "$branch" >/dev/null 2>&1; then

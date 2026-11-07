@@ -33,7 +33,7 @@ The browser opens before the dev server listens. wakemux reloads it once the por
 ## `wakemux done` refuses
 
 - **`uncommitted changes`:** commit or discard them in the thread first.
-- **`processes still run`:** close the thread's workspace first: `cmux close-workspace --workspace <ref>`. `cmux tree --all` lists the refs.
+- **`processes still run`:** `wakemux done` waits up to 10 seconds (`WAKEMUX_DONE_WAIT`) for them to end. If they keep running, close the thread's workspace first: `cmux close-workspace --workspace <ref>`. `cmux tree --all` lists the refs.
 - **`detached HEAD with commits no branch holds`:** create a branch for those commits, or remove the worktree by hand if you do not need them.
 
 ## Leftover worktrees

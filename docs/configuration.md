@@ -94,4 +94,5 @@ export WAKEMUX_REPORT=0
 | Variable | Set by | Purpose |
 |---|---|---|
 | `WAKEMUX_PARENT_SESSION` | the mod, in every session | The session's Claude Code id. `wakemux new` stores it for the fallback report. |
+| `WAKEMUX_DONE_WAIT` | you | Seconds `wakemux done` waits for processes in the worktree to end, for example right after you closed its workspace. Default 10. |
 | `WAKEMUX_PREVIEW_TIMEOUT` | you | Seconds `wakemux new` waits for the dev server before it stops trying to reload the browser. Default 180. |

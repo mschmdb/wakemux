@@ -110,6 +110,7 @@ load helpers
 }
 
 @test "done refuses while a process runs in the worktree" {
+	export WAKEMUX_DONE_WAIT=1
 	add_thread busy
 	(cd "$REPO/.claude/worktrees/busy" && exec sleep 30) &
 	local pid=$!
@@ -118,6 +119,15 @@ load helpers
 	kill "$pid"
 	[ "$status" -eq 1 ]
 	output_contains "processes still run"
+}
+
+@test "done waits for processes of a workspace that is just closing" {
+	add_thread closing
+	(cd "$REPO/.claude/worktrees/closing" && exec sleep 2) &
+	sleep 0.5
+	WAKEMUX_DONE_WAIT=10 run "$WAKEMUX" done closing --repo "$REPO"
+	[ "$status" -eq 0 ]
+	[ ! -d "$REPO/.claude/worktrees/closing" ]
 }
 
 @test "a process in a worktree with a longer name does not block done" {
