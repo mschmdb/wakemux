@@ -8,4 +8,4 @@
 - **Reports are capped** at `reportMaxBytes` (default 30000 bytes). A longer answer is cut, with a note that the rest is in the thread. A forwarded report carries a short extra note.
 - **The script needs `git`, `python3` and `lsof`.**
 - **Dev layout:** pnpm, npm and bun only. Yarn and other setups need `devCommand`.
-- **Live delivery tests are pending.** The fallback channels are tested against faked cmux and Claude Code answers, not yet against real idle, busy and broken sessions.
+- **One delivery case is untested live.** Reports to idle and busy main sessions, the Claude Code fallback and the notifications ran live on the author's Mac. A main session whose cmux poller has died is covered only by tests with faked answers.

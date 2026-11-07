@@ -4,7 +4,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
-First public version, planned as 0.3.0.
+## [0.3.0] - 2026-11-07
+
+First public version.
 
 ### Added
 
@@ -30,3 +32,6 @@ First public version, planned as 0.3.0.
 - A process in a worktree with a longer name no longer blocks `wakemux done`.
 - `.git/info/exclude` is found from any directory.
 - Copying never writes through a symlink, never overwrites a file in the worktree, and skips files the thread's branch does not ignore.
+
+[Unreleased]: https://github.com/mschmdb/wakemux/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/mschmdb/wakemux/releases/tag/v0.3.0
