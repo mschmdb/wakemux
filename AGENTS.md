@@ -31,4 +31,6 @@ bats tests              # script (brew install bats-core)
 shellcheck bin/wakemux
 ```
 
+Type check: load the plugin once with `claude --plugin-dir .` so Claude Code writes `.claude-plugin/types/`, then run `pnpm dlx --package=typescript@5 tsc -p .`.
+
 [HANDOVER.md](HANDOVER.md) describes the current state and the work plan.

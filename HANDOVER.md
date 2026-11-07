@@ -84,34 +84,43 @@ Still open:
 - Dev layout supports pnpm only (step 4).
 - The author's local install (`~/.claude/mods/threads`, `~/.claude/skills/thread`, `~/.local/bin/cmux-aufgabe`) still runs the old version. Threads started by it use `aufgabe/` branches and the `threads-parent` note, which the new mod does not read. Switch over once no old thread is open.
 
-## Configuration design
+## Configuration
 
-| Key | Default | Notes |
-|---|---|---|
-| `language` | `en` | |
-| `worktreeDir` | `.claude/worktrees` | Same location as `claude --worktree`. |
-| `branchPrefix` | `thread/` | |
-| `copyFiles` | `.env` | Git-ignored files copied into each worktree. |
-| `devLayout` | `auto` | On when the project has a `dev` script and a known package manager (pnpm, npm, bun). `off` opens only Claude. |
-| `devCommand` | derived from the package manager | |
-| `report` | `true` | |
-| `reportMaxBytes` | `30000` | cmux limits message bodies to 32 KiB. |
-| `prRequiredOrgs` | empty | |
-| `mergePolicy` | `repo-rules` | The main session reads CLAUDE.md or AGENTS.md. |
-| `scriptPath` | `${CLAUDE_PLUGIN_ROOT}/bin/wakemux` | |
-| `maxThreads` | `4` | `0` means unlimited. |
-| `maxHops` | `6` | Report rounds without a new commit before the main session escalates to the user. |
-| `prStatus` | `true` | |
-| `crossReview` | `off` | For example `codex`. If the CLI is missing, the main session skips the step with a note instead of blocking. |
+Implemented in step 3 in `hooks/config.ts` (pure, tested in `hooks/config.test.ts`).
+
+| Key | Default | Valid values | Used by |
+|---|---|---|---|
+| `worktreeDir` | `.claude/worktrees` | relative path inside the repository | not yet (script, step 4) |
+| `branchPrefix` | `thread/` | prefix that forms a valid branch name with a slug | not yet (script, step 4) |
+| `copyFiles` | `[".env"]` | relative paths inside the repository | not yet (script, step 4; it reads `WAKEMUX_COPY_FILES` itself today) |
+| `devLayout` | `auto` | `auto`, `off` | not yet (script, step 4) |
+| `devCommand` | empty (derived from the package manager) | any string | not yet (script, step 4) |
+| `report` | `true` | boolean | mod |
+| `reportMaxBytes` | `30000` | integer 1000 to 32000; limits the whole message | mod |
+| `prRequiredOrgs` | empty | GitHub organization names | mod |
+| `mergePolicy` | `repo-rules` | `repo-rules`, `pr`, `merge` | not yet (skill) |
+| `scriptPath` | empty (bundled `bin/wakemux`) | absolute path; not settable from `.wakemux.json` | mod |
+| `maxThreads` | `4` | integer 0 to 100, `0` means unlimited | not yet (step 5) |
+| `maxHops` | `6` | integer 0 to 100 | not yet (step 5) |
+| `prStatus` | `true` | boolean | not yet (step 6) |
+| `crossReview` | `off` | `off` or a command name (`a-z0-9-`) | not yet (skill) |
 
 Precedence, highest first:
 
-1. Environment variable `WAKEMUX_<KEY>`.
-2. Plugin `userConfig` in `.claude-plugin/plugin.json`. Hooks see the values as `CLAUDE_PLUGIN_OPTION_<KEY>`. See the [plugins reference](https://code.claude.com/docs/en/plugins-reference).
-3. `.wakemux.json` in the repository, then `~/.config/wakemux/config.json`.
-4. Defaults in code.
+1. Environment variable `WAKEMUX_<KEY>` in upper snake case, for example `WAKEMUX_PR_REQUIRED_ORGS`. Lists are separated by commas or spaces; booleans accept `1/0`, `true/false`, `yes/no`, `on/off`. An empty variable counts as unset.
+2. Plugin `userConfig`. The manifest declares only `prRequiredOrgs`, `copyFiles` and `crossReview`, without defaults, so an unset field does not hide the files below. An empty field counts as unset.
+3. `.wakemux.json` in the main checkout.
+4. `$XDG_CONFIG_HOME/wakemux/config.json`, else `~/.config/wakemux/config.json`.
+5. Defaults in code.
 
-Open: whether `userConfig` shows its dialog when the plugin is loaded with `--plugin-dir` or from a skills directory. Not tested. That is why the file and environment paths exist.
+An invalid value or an unknown key produces a warning, and the next source down applies. Warnings go to the debug log and appear in the pane. `scriptPath` is user-only because the mod runs that path from a pane button without a permission prompt.
+
+Decisions made in step 3, to confirm before release:
+
+- `language` was dropped: only English exists, and a setting with one value adds nothing.
+- `mergePolicy` values `pr` and `merge` are defined but not used yet.
+
+Open: whether `userConfig` shows its dialog when the plugin is loaded with `--plugin-dir` or from a skills directory. Not tested. That is why the file and environment paths exist. The script and the skill do not read the configuration yet; step 4 has to give the script the same precedence, or have the mod pass resolved values.
 
 Detecting "this repository requires PRs", in order:
 
@@ -203,7 +212,7 @@ Estimated 4 to 6 working days in total. The estimate is not based on measurement
 
 1. **Import.** (Done.) Copy mod, skill and script into the repository layout (`.claude-plugin/`, `hooks/`, `types/`, `skills/thread/`, `bin/`). Tests pass unchanged. Add `AGENTS.md` with the rules from the top of this file.
 2. **Generalize.** (Done.) Translate all text to English, rename commands and options, remove the hard-coded organization and paths. Tests updated first.
-3. **Configuration layer.** Loader with the precedence above, unit tests for every source and for invalid values.
+3. **Configuration layer.** (Done.) Loader with the precedence above, unit tests for every source and for invalid values.
 4. **Script.** Detect pnpm, npm and bun; `shellcheck` clean; bats tests for `new` and `done`.
 5. **Report-back hardening.** Delivery check, `SendMessage` fallback, desktop notification, hop limit, deduplication. Test with an idle main session, a busy one, and one without a poller.
 6. **Status in the cmux sidebar.** Evaluate `cmux set-status`, `cmux set-progress` and `cmux pr` as a replacement for, or addition to, the pane.

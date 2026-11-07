@@ -20,6 +20,7 @@ export type Snapshot = {
   threads: ThreadRow[]
   updatedAt: number
   error: string
+  warnings: string[]
 }
 
 declare module 'claude-code' {

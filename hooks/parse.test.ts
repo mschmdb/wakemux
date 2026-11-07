@@ -3,7 +3,6 @@ import { expect, test } from 'claude-code/testing'
 import {
   handOverPrompt,
   isPrRequiredRemote,
-  parseOrgList,
   parseParent,
   reportText,
   threadSlugOf,
@@ -138,14 +137,14 @@ test('reportText leads with the thread, its state and the answer, and stays belo
   expect(single).toContain('ended with an error')
 
   const long = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: 'x'.repeat(100_000) })
-  expect(new TextEncoder().encode(long).length).toBeLessThan(30_000)
+  expect(new TextEncoder().encode(long).length).toBeLessThanOrEqual(30_000)
 
   const wide = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: '漢'.repeat(20_000) })
-  expect(new TextEncoder().encode(wide).length).toBeLessThan(30_000)
+  expect(new TextEncoder().encode(wide).length).toBeLessThanOrEqual(30_000)
   expect(wide).toContain('truncated')
 
   const emoji = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: '😀'.repeat(20_000) })
-  expect(new TextEncoder().encode(emoji).length).toBeLessThan(30_000)
+  expect(new TextEncoder().encode(emoji).length).toBeLessThanOrEqual(30_000)
   expect(emoji).not.toContain('\uFFFD')
   expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emoji)).toBe(false)
 
@@ -169,11 +168,6 @@ test('isPrRequiredRemote matches GitHub remotes of the listed orgs in https and 
   expect(isPrRequiredRemote('', orgs)).toBe(false)
 })
 
-test('parseOrgList splits on commas and whitespace and drops empty entries', () => {
-  expect(parseOrgList('acme, example-org\n other')).toEqual(['acme', 'example-org', 'other'])
-  expect(parseOrgList(' , ')).toEqual([])
-  expect(parseOrgList('')).toEqual([])
-})
 
 test('parseParent reads the spawning workspace from the worktree note and ignores junk', () => {
   expect(parseParent('A162CBB9-1FC5-4834-9588-1D1D0293F6EB\n')).toBe('A162CBB9-1FC5-4834-9588-1D1D0293F6EB')
@@ -181,4 +175,23 @@ test('parseParent reads the spawning workspace from the worktree note and ignore
   expect(parseParent('')).toBe('')
   expect(parseParent('  \n')).toBe('')
   expect(parseParent('rm -rf /; echo')).toBe('')
+})
+
+test('reportText keeps the whole message within the byte limit it is given', () => {
+  const bytes = (text: string) => new TextEncoder().encode(text).length
+  for (const limit of [1_000, 5_000, 32_000]) {
+    for (const answer of ['x'.repeat(50_000), '漢'.repeat(20_000), '😀'.repeat(20_000)]) {
+      const text = reportText({ slug: 'a-long-slug-name', branch: 'thread/a-long-slug-name', ahead: 12, dirty: 3, reason: 'answer', answer }, limit)
+      expect(bytes(text)).toBeLessThanOrEqual(limit)
+      expect(text).toContain('truncated')
+    }
+  }
+  const branch = 'thread/' + Array.from({ length: 5 }, () => 'b'.repeat(200)).join('/')
+  const longHead = reportText({ slug: 's', branch, ahead: 0, dirty: 0, reason: 'answer', answer: 'x'.repeat(5_000) }, 1_000)
+  expect(bytes(longHead)).toBeLessThanOrEqual(1_000)
+  expect(longHead.startsWith('[Thread s]')).toBe(true)
+  expect(longHead).toContain('truncated')
+
+  const fits = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: 'x'.repeat(900) }, 1_000)
+  expect(fits).not.toContain('truncated')
 })

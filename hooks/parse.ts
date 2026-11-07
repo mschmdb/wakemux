@@ -68,13 +68,10 @@ export function parseCwd(sidebarState: string): string {
 export function isPrRequiredRemote(url: string, orgs: string[]): boolean {
   const match = /github\.com(?::\d+)?[:/]([^/]+)\//.exec(url)
   if (!match) return false
-  const owner = match[1].toLowerCase()
+  const owner = (match[1] ?? '').toLowerCase()
   return orgs.some(org => org.toLowerCase() === owner)
 }
 
-export function parseOrgList(value: string): string[] {
-  return value.split(/[\s,]+/).filter(Boolean)
-}
 
 export function commits(count: number): string {
   return `${count} commit${count === 1 ? '' : 's'}`
@@ -111,8 +108,13 @@ export type Report = {
   answer: string
 }
 
-// cmux agent messages are capped at 32 KiB of UTF-8; keep headroom for the header.
-const ANSWER_LIMIT_BYTES = 24_000
+// cmux agent messages are capped at 32 KiB of UTF-8. The setting reportMaxBytes overrides this.
+const DEFAULT_MAX_BYTES = 30_000
+const TRUNCATED = '\n[… truncated, the rest is in the thread]'
+
+function byteLength(text: string): number {
+  return new TextEncoder().encode(text).length
+}
 
 // Cuts at a code point boundary, so a surrogate pair is never split.
 function truncateUtf8(text: string, maxBytes: number): string {
@@ -129,7 +131,7 @@ function truncateUtf8(text: string, maxBytes: number): string {
   return text.slice(0, end)
 }
 
-export function reportText(report: Report): string {
+export function reportText(report: Report, maxBytes = DEFAULT_MAX_BYTES): string {
   const state = [
     `Branch ${report.branch || '(no branch)'}`,
     commits(report.ahead),
@@ -137,10 +139,13 @@ export function reportText(report: Report): string {
   ].join(', ')
   const how =
     report.reason === 'answer' ? 'waiting for input' : report.reason === 'aborted' ? 'aborted' : report.reason === 'refusal' ? 'refused' : 'ended with an error'
-  let answer = report.answer.trim()
-  const cut = truncateUtf8(answer, ANSWER_LIMIT_BYTES)
-  if (cut !== answer) answer = cut + '\n[… truncated, the rest is in the thread]'
-  return [`[Thread ${report.slug}] ${how}. ${state}.`, answer || '(no text answer)'].join('\n\n')
+  const head = `[Thread ${report.slug}] ${how}. ${state}.\n\n`
+  const answer = report.answer.trim() || '(no text answer)'
+  if (byteLength(head + answer) <= maxBytes) return head + answer
+  const room = maxBytes - byteLength(TRUNCATED)
+  // A very long branch name can fill the budget on its own: then the header is cut too.
+  if (byteLength(head) >= room) return truncateUtf8(head, room) + TRUNCATED
+  return head + truncateUtf8(answer, room - byteLength(head)) + TRUNCATED
 }
 
 // `wakemux new` notes the spawning workspace in the worktree's git dir (file `wakemux-parent`).

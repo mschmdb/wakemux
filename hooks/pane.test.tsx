@@ -29,10 +29,10 @@ const THREAD: ThreadRow = {
   workspaceRef: 'workspace:7',
 }
 
-function stubState(on: On, threads: ThreadRow[], baseDirty = 0) {
-  const snapshot: Snapshot = { repo: '/r', base: 'feature/x', prRequired: false, baseDirty, threads, updatedAt: 0, error: '' }
+function stubState(on: On, threads: ThreadRow[], baseDirty = 0, warnings: string[] = []) {
+  const snapshot: Snapshot = { repo: '/r', base: 'feature/x', prRequired: false, baseDirty, threads, updatedAt: 0, error: '', warnings }
   const stored: Record<string, unknown> = {
-    snapshot: { shape: 'snapshot-3', value: snapshot },
+    snapshot: { shape: 'snapshot-4', value: snapshot },
     confirm: { shape: 'confirm-1', value: '' },
     message: { shape: 'message-1', value: '' },
   }
@@ -83,5 +83,21 @@ test('no threads shows how to start one', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   expect((await ui.find({ type: 'Text', text: /No threads/ }))?.text).toBeTruthy()
+  await ui.unmount()
+})
+
+test('configuration warnings are shown so a bad setting does not fail silently', async ($, on) => {
+  stubState(on, [THREAD], 0, ['config.json: invalid value -1, ignored'])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  expect((await ui.find({ type: 'Text', text: /config.json: invalid value -1, ignored/ }))?.text).toBeTruthy()
+  await ui.unmount()
+})
+
+test('no warning line without warnings', async ($, on) => {
+  stubState(on, [THREAD])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  expect(await ui.find({ type: 'Text', text: /Settings:/ })).toBeFalsy()
   await ui.unmount()
 })

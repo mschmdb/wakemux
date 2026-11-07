@@ -2,6 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Snapshot, ThreadRow } from '../types'
+import type { Config, EnvName } from './config'
+import { REPO_FILE, resolveConfig, userConfigPath } from './config'
 import type { Report } from './parse'
 import {
   handOverPrompt,
@@ -9,7 +11,6 @@ import {
   parseAgentStatus,
   parseCounts,
   parseCwd,
-  parseOrgList,
   parseParent,
   parseWorktrees,
   reportText,
@@ -21,10 +22,10 @@ const PANE = 'threads'
 const TITLE = 'Threads'
 const REFRESH_MS = 10_000
 
-const EMPTY: Snapshot = { repo: '', base: '', prRequired: false, baseDirty: 0, threads: [], updatedAt: 0, error: '' }
+const EMPTY: Snapshot = { repo: '', base: '', prRequired: false, baseDirty: 0, threads: [], updatedAt: 0, error: '', warnings: [] }
 
 // Change a tag when the stored shape changes: an older value is then read as the initial one.
-const snapshot = atom({ plugin: 'wakemux', key: 'snapshot' } as const, EMPTY, { shape: 'snapshot-3' })
+const snapshot = atom({ plugin: 'wakemux', key: 'snapshot' } as const, EMPTY, { shape: 'snapshot-4' })
 const confirm = atom({ plugin: 'wakemux', key: 'confirm' } as const, '', { shape: 'confirm-1' })
 const message = atom({ plugin: 'wakemux', key: 'message' } as const, '', { shape: 'message-1' })
 
@@ -34,6 +35,8 @@ type Run = { exitCode: number; stdout: string; stderr: string }
 
 // Module variable: a reload drops it, and session.start starts the timer again.
 let timer: { cancel: () => void } | undefined
+// The plugin's userConfig values; register receives them on every load.
+let pluginOptions: Readonly<Record<string, unknown>> = {}
 
 async function run($: Dollar, argv: string[], cwd?: string, env?: Record<string, string>, stdin?: string): Promise<Run> {
   try {
@@ -76,9 +79,55 @@ async function findWorkspace($: Dollar, slug: string, path: string, refs: Map<st
   return { ref: '', agent: '' }
 }
 
+async function readOptional($: Dollar, path: string): Promise<string | undefined> {
+  if (!path || !(await $.fs.exists(path))) return undefined
+  try {
+    return await $.fs.read(path)
+  } catch (error) {
+    // An unreadable file must not look like an empty one: hand back text that fails to parse.
+    return `unreadable: ${String(error)}`
+  }
+}
+
+// $.env.get takes string literals only, so every variable is spelled out.
+// Typed by EnvName, so a setting added to config.ts without a line here fails the type check.
+async function readEnv($: Dollar): Promise<Record<EnvName, string | undefined>> {
+  return {
+    HOME: await $.env.get('HOME'),
+    XDG_CONFIG_HOME: await $.env.get('XDG_CONFIG_HOME'),
+    WAKEMUX_WORKTREE_DIR: await $.env.get('WAKEMUX_WORKTREE_DIR'),
+    WAKEMUX_BRANCH_PREFIX: await $.env.get('WAKEMUX_BRANCH_PREFIX'),
+    WAKEMUX_COPY_FILES: await $.env.get('WAKEMUX_COPY_FILES'),
+    WAKEMUX_DEV_LAYOUT: await $.env.get('WAKEMUX_DEV_LAYOUT'),
+    WAKEMUX_DEV_COMMAND: await $.env.get('WAKEMUX_DEV_COMMAND'),
+    WAKEMUX_REPORT: await $.env.get('WAKEMUX_REPORT'),
+    WAKEMUX_REPORT_MAX_BYTES: await $.env.get('WAKEMUX_REPORT_MAX_BYTES'),
+    WAKEMUX_PR_REQUIRED_ORGS: await $.env.get('WAKEMUX_PR_REQUIRED_ORGS'),
+    WAKEMUX_MERGE_POLICY: await $.env.get('WAKEMUX_MERGE_POLICY'),
+    WAKEMUX_SCRIPT_PATH: await $.env.get('WAKEMUX_SCRIPT_PATH'),
+    WAKEMUX_MAX_THREADS: await $.env.get('WAKEMUX_MAX_THREADS'),
+    WAKEMUX_MAX_HOPS: await $.env.get('WAKEMUX_MAX_HOPS'),
+    WAKEMUX_PR_STATUS: await $.env.get('WAKEMUX_PR_STATUS'),
+    WAKEMUX_CROSS_REVIEW: await $.env.get('WAKEMUX_CROSS_REVIEW'),
+  }
+}
+
+async function loadConfig($: Dollar, repo: string): Promise<{ config: Config; warnings: string[] }> {
+  const env = await readEnv($)
+  const { config, warnings } = resolveConfig({
+    env,
+    options: pluginOptions,
+    repoFile: repo ? await readOptional($, `${repo}/${REPO_FILE}`) : undefined,
+    userFile: await readOptional($, userConfigPath(env)),
+  })
+  for (const warning of warnings) $.ui.log(`wakemux: ${warning}`, { to: 'debug' })
+  return { config, warnings }
+}
+
 async function collect($: Dollar): Promise<Snapshot> {
   const repo = await mainCheckout($)
   if (!repo) return { ...EMPTY, error: 'Not a git repository.' }
+  const { config, warnings } = await loadConfig($, repo)
   const base = (await git($, repo, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const worktrees = parseWorktrees((await git($, repo, 'worktree', 'list', '--porcelain')).stdout, repo)
   const refs = workspaceRefsByTitle((await cmux($, 'tree', '--all', '--json')).stdout)
@@ -102,8 +151,8 @@ async function collect($: Dollar): Promise<Snapshot> {
   }
   const baseDirty = await dirtyCount($, repo, false)
   const remote = (await git($, repo, 'remote', 'get-url', 'origin')).stdout.trim()
-  const prRequired = isPrRequiredRemote(remote, await prRequiredOrgs($))
-  return { repo, base, prRequired, baseDirty, threads, updatedAt: await $.clock.now(), error: '' }
+  const prRequired = isPrRequiredRemote(remote, config.prRequiredOrgs)
+  return { repo, base, prRequired, baseDirty, threads, updatedAt: await $.clock.now(), error: '', warnings }
 }
 
 async function refresh($: Dollar) {
@@ -160,7 +209,9 @@ async function removeThread($: Dollar, slug: string) {
     await cmux($, 'close-workspace', '--workspace', thread.workspaceRef, '--force')
     await $.clock.sleep(2000)
   }
-  const done = await run($, [$.plugin.root + '/bin/wakemux', 'done', slug, '--repo', state.repo])
+  const { config } = await loadConfig($, state.repo)
+  const script = config.scriptPath || $.plugin.root + '/bin/wakemux'
+  const done = await run($, [script, 'done', slug, '--repo', state.repo])
   await say($, `${slug}: ${(done.stdout + done.stderr).trim().split('\n').pop() ?? ''}`)
   await refresh($)
 }
@@ -168,7 +219,7 @@ async function removeThread($: Dollar, slug: string) {
 // ---- Report back: a thread session tells the main session whenever its turn ends ----
 // cmux delivers `agent message` through the receiver's hooks: an idle main session wakes up,
 // a busy one reads it at its next step. Target: the spawning session, else the main checkout's.
-// Opt out per machine with WAKEMUX_REPORT=0.
+// Opt out with the setting report (WAKEMUX_REPORT=0).
 
 type ThreadContext = { slug: string; main: string }
 let context: ThreadContext | null | undefined
@@ -183,15 +234,6 @@ async function threadContext($: Dollar): Promise<ThreadContext | null> {
   return context
 }
 
-// Space- or comma-separated GitHub orgs whose repositories require PRs.
-async function prRequiredOrgs($: Dollar): Promise<string[]> {
-  return parseOrgList((await $.env.get('WAKEMUX_PR_REQUIRED_ORGS')) ?? '')
-}
-
-async function isOptedOut($: Dollar): Promise<boolean> {
-  return ((await $.env.get('WAKEMUX_REPORT')) ?? '').trim() === '0'
-}
-
 // The main session is the workspace whose cwd is the main checkout. Titles like "main" repeat across projects.
 async function findMainRef($: Dollar, main: string): Promise<string> {
   const refs = [...workspaceRefsByTitle((await cmux($, 'tree', '--all', '--json')).stdout).values()].flat()
@@ -203,11 +245,13 @@ async function findMainRef($: Dollar, main: string): Promise<string> {
 
 async function sendReport($: Dollar, reason: Report['reason'], answer: string) {
   const ctx = await threadContext($)
-  if (!ctx || (await isOptedOut($))) return
+  if (!ctx) return
+  const { config } = await loadConfig($, ctx.main)
+  if (!config.report) return
   const base = (await git($, ctx.main, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const branch = (await git($, '.', 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const ahead = Number((await git($, '.', 'rev-list', '--count', `${base}..HEAD`)).stdout.trim()) || 0
-  const text = reportText({ slug: ctx.slug, branch, ahead, dirty: await dirtyCount($, '.', true), reason, answer })
+  const text = reportText({ slug: ctx.slug, branch, ahead, dirty: await dirtyCount($, '.', true), reason, answer }, config.reportMaxBytes)
   // First choice: the session that started the thread (may sit in another repo). Fallback: the main checkout's session.
   const gitDir = (await git($, '.', 'rev-parse', '--absolute-git-dir')).stdout.trim()
   const parent = gitDir ? parseParent((await run($, ['/bin/cat', gitDir + '/wakemux-parent'])).stdout) : ''
@@ -230,7 +274,8 @@ async function openWorkspace($: Dollar, thread: ThreadRow) {
   await cmux($, 'select-workspace', '--workspace', thread.workspaceRef)
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  pluginOptions = options
   // Only the main loop reports; a subagent's end inside the thread is not the thread's answer.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
@@ -296,6 +341,11 @@ export const register: Register = on => {
           </Button>
         </Box>
         {note !== '' && <Text color="yellow">{note}</Text>}
+        {state.warnings.map(warning => (
+          <Text key={warning} color="yellow">
+            Settings: {warning}
+          </Text>
+        ))}
         {state.threads.length === 0 && <Text dimColor>No threads. Ask Claude to run a task as a thread.</Text>}
         {state.threads.map(thread => {
           const canHandOver = thread.dirty === 0 && thread.ahead > 0
