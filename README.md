@@ -49,6 +49,7 @@ When you start threads, wakemux creates worktrees, branches and cmux workspaces,
 - [Troubleshooting](docs/troubleshooting.md)
 - [Security](docs/security.md)
 - [Limitations](docs/limitations.md)
+- [Changelog](CHANGELOG.md) and [contributing](CONTRIBUTING.md)
 
 ## License
 

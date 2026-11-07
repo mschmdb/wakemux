@@ -1,0 +1,41 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # wakemux targets macOS; its script runs on the bash 3.2 that macOS ships.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Install bats and shellcheck
+        run: brew install bats-core shellcheck
+      - name: shellcheck
+        run: shellcheck bin/wakemux install.sh
+      - name: Script tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.com
+          git config --global init.defaultBranch main
+          bats tests
+      # The Claude Code version wakemux is developed with. Plugin tests and validation need no login.
+      - name: Mod tests
+        run: pnpm dlx @anthropic-ai/claude-code@2.1.319 plugin test .
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
+      - name: Validate the plugin
+        run: pnpm dlx @anthropic-ai/claude-code@2.1.319 plugin validate .
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
