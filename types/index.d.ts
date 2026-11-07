@@ -24,7 +24,7 @@ export type Snapshot = {
 
 declare module 'claude-code' {
   interface PluginState {
-    threads: {
+    wakemux: {
       snapshot: Shaped<Snapshot>
       confirm: Shaped<string>
       message: Shaped<string>

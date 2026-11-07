@@ -4,7 +4,7 @@ import type { On } from 'claude-code'
 import type { Snapshot, ThreadRow } from '../types'
 
 const PANE = {
-  plugin: 'threads',
+  plugin: 'wakemux',
   component: 'Pane',
   requestId: 'threads',
   props: {
@@ -19,7 +19,7 @@ const PANE = {
 
 const THREAD: ThreadRow = {
   slug: 'og-images',
-  branch: 'aufgabe/og-images',
+  branch: 'thread/og-images',
   path: '/r/.claude/worktrees/og-images',
   ahead: 3,
   behind: 0,
@@ -56,7 +56,7 @@ test('a dirty thread offers neither merge nor cleanup', async ($, on) => {
 
   expect(await ui.find({ type: 'Button', key: 'both-og-images' })).toBeFalsy()
   expect(await ui.find({ type: 'Button', key: 'clean-og-images' })).toBeFalsy()
-  expect((await ui.find({ type: 'Text', text: /2 uncommittet/ }))?.text).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /2 uncommitted/ }))?.text).toBeTruthy()
   await ui.unmount()
 })
 
@@ -65,7 +65,7 @@ test('conflicts still go to Claude, which resolves them in the main checkout', a
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   expect(await ui.find({ type: 'Button', key: 'both-og-images' })).toBeTruthy()
-  expect((await ui.find({ type: 'Text', text: /Konflikte/ }))?.text).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /conflicts/ }))?.text).toBeTruthy()
   await ui.unmount()
 })
 
@@ -82,6 +82,6 @@ test('no threads shows how to start one', async ($, on) => {
   stubState(on, [])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  expect((await ui.find({ type: 'Text', text: /Keine Threads/ }))?.text).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /No threads/ }))?.text).toBeTruthy()
   await ui.unmount()
 })

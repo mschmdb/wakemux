@@ -24,7 +24,7 @@ test('parseWorktrees keeps only threads under .claude/worktrees', () => {
     '',
     `worktree ${MAIN}/.claude/worktrees/og-images`,
     'HEAD 2222',
-    'branch refs/heads/aufgabe/og-images',
+    'branch refs/heads/thread/og-images',
     '',
     `worktree ${MAIN}/.claude/worktrees/detached`,
     'HEAD 3333',
@@ -37,7 +37,7 @@ test('parseWorktrees keeps only threads under .claude/worktrees', () => {
     {
       slug: 'og-images',
       path: `${MAIN}/.claude/worktrees/og-images`,
-      branch: 'aufgabe/og-images',
+      branch: 'thread/og-images',
     },
     { slug: 'detached', path: `${MAIN}/.claude/worktrees/detached`, branch: '' },
   ])
@@ -91,19 +91,22 @@ test('parseCwd reads the workspace directory of sidebar-state', () => {
 })
 
 test('handOverPrompt names thread, branch and base and points to the repo rules', () => {
-  const thread = { slug: 'og-images', branch: 'aufgabe/og-images', ahead: 3, merge: 'clean' as const }
+  const thread = { slug: 'og-images', branch: 'thread/og-images', ahead: 3, merge: 'clean' as const }
 
   const own = handOverPrompt(thread, 'feature/x', false)
   expect(own).toContain('og-images')
-  expect(own).toContain('aufgabe/og-images')
+  expect(own).toContain('thread/og-images')
   expect(own).toContain('feature/x')
-  expect(own).toContain('Regeln dieses Repos')
-  expect(own).not.toContain('Merge ihn')
+  expect(own).toContain("this repository's rules")
+  expect(own).not.toContain('Merge it')
   expect(own).not.toContain('PRs')
 
   const required = handOverPrompt({ ...thread, merge: 'conflict' }, 'main', true)
-  expect(required).toContain('verlangt PRs')
-  expect(required).toContain('Konflikte')
+  expect(required).toContain('requires PRs')
+  expect(required).toContain('conflict')
+
+  const one = handOverPrompt({ ...thread, ahead: 1 }, 'main', false)
+  expect(one).toContain('1 commit ahead of main')
 })
 
 test('threadSlugOf finds the thread slug only inside .claude/worktrees of the main checkout', () => {
@@ -116,22 +119,30 @@ test('threadSlugOf finds the thread slug only inside .claude/worktrees of the ma
 })
 
 test('reportText leads with the thread, its state and the answer, and stays below the message limit', () => {
-  const text = reportText({ slug: 'og-images', branch: 'aufgabe/og-images', ahead: 2, dirty: 1, reason: 'answer', answer: 'Fertig. Frage: Farbe A oder B?' })
+  const text = reportText({ slug: 'og-images', branch: 'thread/og-images', ahead: 2, dirty: 1, reason: 'answer', answer: 'Done. Question: colour A or B?' })
   expect(text.startsWith('[Thread og-images]')).toBe(true)
-  expect(text).toContain('aufgabe/og-images')
-  expect(text).toContain('2 Commits')
-  expect(text).toContain('1 uncommittet')
-  expect(text).toContain('Farbe A oder B?')
+  expect(text).toContain('thread/og-images')
+  expect(text).toContain('2 commits')
+  expect(text).toContain('1 uncommitted')
+  expect(text).toContain('colour A or B?')
 
   const aborted = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'aborted', answer: '' })
-  expect(aborted).toContain('abgebrochen')
+  expect(aborted).toContain('aborted')
+  expect(aborted).toContain('0 commits')
+  expect(aborted).toContain('clean')
+  expect(aborted).toContain('(no text answer)')
+
+  const single = reportText({ slug: 's', branch: '', ahead: 1, dirty: 0, reason: 'error', answer: 'x' })
+  expect(single).toContain('1 commit,')
+  expect(single).toContain('no branch')
+  expect(single).toContain('ended with an error')
 
   const long = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: 'x'.repeat(100_000) })
   expect(new TextEncoder().encode(long).length).toBeLessThan(30_000)
 
   const wide = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: '漢'.repeat(20_000) })
   expect(new TextEncoder().encode(wide).length).toBeLessThan(30_000)
-  expect(wide).toContain('gekürzt')
+  expect(wide).toContain('truncated')
 
   const emoji = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: '😀'.repeat(20_000) })
   expect(new TextEncoder().encode(emoji).length).toBeLessThan(30_000)
@@ -139,8 +150,8 @@ test('reportText leads with the thread, its state and the answer, and stays belo
   expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emoji)).toBe(false)
 
   const short = reportText({ slug: 's', branch: 'b', ahead: 0, dirty: 0, reason: 'answer', answer: 'ü'.repeat(1_000) })
-  expect(short).not.toContain('gekürzt')
-  expect(long).toContain('gekürzt')
+  expect(short).not.toContain('truncated')
+  expect(long).toContain('truncated')
 })
 
 test('isPrRequiredRemote matches GitHub remotes of the listed orgs in https and ssh form', () => {

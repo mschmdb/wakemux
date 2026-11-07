@@ -76,16 +76,20 @@ export function parseOrgList(value: string): string[] {
   return value.split(/[\s,]+/).filter(Boolean)
 }
 
+export function commits(count: number): string {
+  return `${count} commit${count === 1 ? '' : 's'}`
+}
+
 type HandOverThread = { slug: string; branch: string; ahead: number; merge: 'clean' | 'conflict' | 'unknown' }
 
-// The pane states facts only. How a thread lands (PR or local merge) is the repo's rule,
-// which the main session reads from CLAUDE.md and memory. Same text on every machine.
+// The pane states facts only. How a thread lands (PR or local merge) is the repository's rule,
+// which the main session reads from CLAUDE.md, AGENTS.md and memory. Same text on every machine.
 export function handOverPrompt(thread: HandOverThread, base: string, prRequired: boolean): string {
   const facts = [
-    `Thread ${thread.slug} ist fertig: Branch ${thread.branch}, ${thread.ahead} Commits vor ${base}.`,
-    thread.merge === 'conflict' ? 'Ein Merge in die Basis hätte Konflikte.' : '',
-    prRequired ? 'Dieses Repo verlangt PRs.' : '',
-    'Bring ihn auf dem Weg rein, den die Regeln dieses Repos vorsehen (CLAUDE.md, Memory), und räum den Thread danach auf.',
+    `Thread ${thread.slug} is done: branch ${thread.branch}, ${commits(thread.ahead)} ahead of ${base}.`,
+    thread.merge === 'conflict' ? 'Merging it into the base would conflict.' : '',
+    prRequired ? 'This repository requires PRs.' : '',
+    "Land it the way this repository's rules say (CLAUDE.md, AGENTS.md, memory), then clean up the thread.",
   ]
   return facts.filter(Boolean).join(' ')
 }
@@ -127,19 +131,19 @@ function truncateUtf8(text: string, maxBytes: number): string {
 
 export function reportText(report: Report): string {
   const state = [
-    `Branch ${report.branch || 'ohne Branch'}`,
-    `${report.ahead} Commits`,
-    report.dirty > 0 ? `${report.dirty} uncommittet` : 'sauber',
+    `Branch ${report.branch || '(no branch)'}`,
+    commits(report.ahead),
+    report.dirty > 0 ? `${report.dirty} uncommitted` : 'clean',
   ].join(', ')
   const how =
-    report.reason === 'answer' ? 'wartet auf Eingabe' : report.reason === 'aborted' ? 'abgebrochen' : report.reason === 'refusal' ? 'verweigert' : 'mit Fehler beendet'
+    report.reason === 'answer' ? 'waiting for input' : report.reason === 'aborted' ? 'aborted' : report.reason === 'refusal' ? 'refused' : 'ended with an error'
   let answer = report.answer.trim()
   const cut = truncateUtf8(answer, ANSWER_LIMIT_BYTES)
-  if (cut !== answer) answer = cut + '\n[… gekürzt, Rest im Thread]'
-  return [`[Thread ${report.slug}] ${how}. ${state}.`, answer || '(keine Textantwort)'].join('\n\n')
+  if (cut !== answer) answer = cut + '\n[… truncated, the rest is in the thread]'
+  return [`[Thread ${report.slug}] ${how}. ${state}.`, answer || '(no text answer)'].join('\n\n')
 }
 
-// cmux-aufgabe notes the spawning workspace in the worktree's git dir (file `threads-parent`).
+// `wakemux new` notes the spawning workspace in the worktree's git dir (file `wakemux-parent`).
 // Only plain workspace ids or refs pass: the value goes to `cmux agent message` as a target.
 export function parseParent(note: string): string {
   const value = note.trim()

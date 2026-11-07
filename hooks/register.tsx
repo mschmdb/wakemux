@@ -24,9 +24,9 @@ const REFRESH_MS = 10_000
 const EMPTY: Snapshot = { repo: '', base: '', prRequired: false, baseDirty: 0, threads: [], updatedAt: 0, error: '' }
 
 // Change a tag when the stored shape changes: an older value is then read as the initial one.
-const snapshot = atom({ plugin: 'threads', key: 'snapshot' } as const, EMPTY, { shape: 'snapshot-3' })
-const confirm = atom({ plugin: 'threads', key: 'confirm' } as const, '', { shape: 'confirm-1' })
-const message = atom({ plugin: 'threads', key: 'message' } as const, '', { shape: 'message-1' })
+const snapshot = atom({ plugin: 'wakemux', key: 'snapshot' } as const, EMPTY, { shape: 'snapshot-3' })
+const confirm = atom({ plugin: 'wakemux', key: 'confirm' } as const, '', { shape: 'confirm-1' })
+const message = atom({ plugin: 'wakemux', key: 'message' } as const, '', { shape: 'message-1' })
 
 type Dollar = EngineInterface
 
@@ -78,7 +78,7 @@ async function findWorkspace($: Dollar, slug: string, path: string, refs: Map<st
 
 async function collect($: Dollar): Promise<Snapshot> {
   const repo = await mainCheckout($)
-  if (!repo) return { ...EMPTY, error: 'Kein Git-Repo.' }
+  if (!repo) return { ...EMPTY, error: 'Not a git repository.' }
   const base = (await git($, repo, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const worktrees = parseWorktrees((await git($, repo, 'worktree', 'list', '--porcelain')).stdout, repo)
   const refs = workspaceRefsByTitle((await cmux($, 'tree', '--all', '--json')).stdout)
@@ -139,30 +139,28 @@ async function isConfirmed($: Dollar, key: string, warning: string): Promise<boo
 }
 
 async function cleanUp($: Dollar, slug: string) {
-  const warning = `${slug}: Nochmal drücken schließt den Workspace und löscht den Worktree.`
+  const warning = `${slug}: press again to close the workspace and remove the worktree.`
   if (await isConfirmed($, `clean:${slug}`, warning)) await removeThread($, slug)
 }
 
 // Merging is the main session's job: it knows the repo's rules and can resolve conflicts.
 async function handOver($: Dollar, thread: ThreadRow) {
-  if (!(await isMainSession($))) return say($, 'Übergabe nur aus der Session des Haupt-Checkouts.')
+  if (!(await isMainSession($))) return say($, 'Hand-over works only from the main checkout\'s session.')
   const state = await read($, snapshot)
-  await say($, `${thread.slug}: an Claude übergeben.`)
+  await say($, `${thread.slug}: handed over to Claude.`)
   void $.prompt.submit({ text: handOverPrompt(thread, state.base, state.prRequired) })
 }
 
 async function removeThread($: Dollar, slug: string) {
   const state = await refresh($)
   const thread = state.threads.find(one => one.slug === slug)
-  if (!thread) return say($, `${slug}: nicht mehr vorhanden.`)
-  if (thread.dirty > 0) return say($, `${slug}: ${thread.dirty} uncommittete Änderungen, erst committen.`)
+  if (!thread) return say($, `${slug}: no longer exists.`)
+  if (thread.dirty > 0) return say($, `${slug}: ${thread.dirty} uncommitted changes, commit them first.`)
   if (thread.workspaceRef) {
     await cmux($, 'close-workspace', '--workspace', thread.workspaceRef, '--force')
     await $.clock.sleep(2000)
   }
-  const done = await run($, [
-    '/bin/sh', '-c', 'exec "$HOME/.local/bin/cmux-aufgabe" fertig "$1" --repo "$2"', 'sh', slug, state.repo,
-  ])
+  const done = await run($, [$.plugin.root + '/bin/wakemux', 'done', slug, '--repo', state.repo])
   await say($, `${slug}: ${(done.stdout + done.stderr).trim().split('\n').pop() ?? ''}`)
   await refresh($)
 }
@@ -170,7 +168,7 @@ async function removeThread($: Dollar, slug: string) {
 // ---- Report back: a thread session tells the main session whenever its turn ends ----
 // cmux delivers `agent message` through the receiver's hooks: an idle main session wakes up,
 // a busy one reads it at its next step. Target: the spawning session, else the main checkout's.
-// Opt out per machine with THREADS_REPORT=0.
+// Opt out per machine with WAKEMUX_REPORT=0.
 
 type ThreadContext = { slug: string; main: string }
 let context: ThreadContext | null | undefined
@@ -187,13 +185,11 @@ async function threadContext($: Dollar): Promise<ThreadContext | null> {
 
 // Space- or comma-separated GitHub orgs whose repositories require PRs.
 async function prRequiredOrgs($: Dollar): Promise<string[]> {
-  const value = await run($, ['/bin/sh', '-c', 'printf %s "${WAKEMUX_PR_REQUIRED_ORGS:-}"'])
-  return parseOrgList(value.stdout)
+  return parseOrgList((await $.env.get('WAKEMUX_PR_REQUIRED_ORGS')) ?? '')
 }
 
 async function isOptedOut($: Dollar): Promise<boolean> {
-  const value = await run($, ['/bin/sh', '-c', 'printf %s "${THREADS_REPORT:-}"'])
-  return value.stdout.trim() === '0'
+  return ((await $.env.get('WAKEMUX_REPORT')) ?? '').trim() === '0'
 }
 
 // The main session is the workspace whose cwd is the main checkout. Titles like "main" repeat across projects.
@@ -214,7 +210,7 @@ async function sendReport($: Dollar, reason: Report['reason'], answer: string) {
   const text = reportText({ slug: ctx.slug, branch, ahead, dirty: await dirtyCount($, '.', true), reason, answer })
   // First choice: the session that started the thread (may sit in another repo). Fallback: the main checkout's session.
   const gitDir = (await git($, '.', 'rev-parse', '--absolute-git-dir')).stdout.trim()
-  const parent = gitDir ? parseParent((await run($, ['/bin/cat', gitDir + '/threads-parent'])).stdout) : ''
+  const parent = gitDir ? parseParent((await run($, ['/bin/cat', gitDir + '/wakemux-parent'])).stdout) : ''
   if (parent) {
     const sent = await run($, ['cmux', 'agent', 'message', parent, '--from', ctx.slug, '-'], undefined, { CMUX_QUIET: '1' }, text)
     if (sent.exitCode === 0) return
@@ -226,11 +222,11 @@ async function sendReport($: Dollar, reason: Report['reason'], answer: string) {
     if (sent.exitCode === 0) return
     mainRef = ''
   }
-  $.ui.log(`threads: Rückmeldung von ${ctx.slug} nicht zugestellt (keine Main-Session gefunden).`, { to: 'debug' })
+  $.ui.log(`wakemux: report from ${ctx.slug} not delivered (no main session found).`, { to: 'debug' })
 }
 
 async function openWorkspace($: Dollar, thread: ThreadRow) {
-  if (!thread.workspaceRef) return say($, `${thread.slug}: kein offener Workspace.`)
+  if (!thread.workspaceRef) return say($, `${thread.slug}: no open workspace.`)
   await cmux($, 'select-workspace', '--workspace', thread.workspaceRef)
 }
 
@@ -244,7 +240,7 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    await $.command.register({ name: 'threads', description: 'Thread-Übersicht ein- oder ausblenden' })
+    await $.command.register({ name: 'threads', description: 'Show or hide the threads pane' })
     const state = await refresh($)
     const isMainCheckout = await isMainSession($)
     const wasOpen = (await $.ui.panes()).some(pane => pane.id === PANE)
@@ -255,17 +251,17 @@ export const register: Register = on => {
 
   on('command.run', { command: 'threads' }, async $ => {
     if (!(await isMainSession($))) {
-      return { text: 'Die Thread-Übersicht läuft nur in der Session des Haupt-Checkouts (Workspace „main").' }
+      return { text: 'The threads pane runs only in the main checkout\'s session (workspace "main").' }
     }
     // A pane opened unasked on a narrow terminal is listed but waits undrawn: open it then, don't close.
     const pane = (await $.ui.panes()).find(one => one.id === PANE)
     if (pane?.isPlaced && pane.isShown) {
       await $.ui.close({ id: PANE })
-      return { text: 'Thread-Übersicht ausgeblendet.' }
+      return { text: 'Threads pane hidden.' }
     }
     await refresh($)
     await openPane($)
-    return { text: 'Thread-Übersicht geöffnet.' }
+    return { text: 'Threads pane opened.' }
   })
 
   on('ui.close', async ($, e, next) => {
@@ -289,45 +285,45 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="column">
           <Text>
-            Basis <Text bold>{state.base}</Text>
-            {state.baseDirty > 0 ? ` · ${state.baseDirty} uncommittet` : ''}
+            Base <Text bold>{state.base}</Text>
+            {state.baseDirty > 0 ? ` · ${state.baseDirty} uncommitted` : ''}
           </Text>
           <Text dimColor>
-            {state.threads.length} Threads · Stand {time}
+            {state.threads.length} {state.threads.length === 1 ? 'thread' : 'threads'} · updated {time}
           </Text>
           <Button key="refresh" hotkey="r" onPress={() => void refresh($)}>
-            Aktualisieren
+            Refresh
           </Button>
         </Box>
         {note !== '' && <Text color="yellow">{note}</Text>}
-        {state.threads.length === 0 && <Text dimColor>Keine Threads. Starte einen mit „mach X als Thread".</Text>}
+        {state.threads.length === 0 && <Text dimColor>No threads. Ask Claude to run a task as a thread.</Text>}
         {state.threads.map(thread => {
           const canHandOver = thread.dirty === 0 && thread.ahead > 0
           const mergeLabel =
-            thread.ahead === 0 ? 'nichts zu mergen' : thread.merge === 'clean' ? 'mergebar' : thread.merge === 'conflict' ? 'Konflikte' : 'Merge unklar'
+            thread.ahead === 0 ? 'nothing to merge' : thread.merge === 'clean' ? 'mergeable' : thread.merge === 'conflict' ? 'conflicts' : 'merge unknown'
           return (
             <Box key={thread.slug} flexDirection="column">
               <Text>
-                <Text bold>{thread.slug}</Text> · {thread.agent || (thread.workspaceRef ? 'kein Agent' : 'Workspace zu')}
+                <Text bold>{thread.slug}</Text> · {thread.agent || (thread.workspaceRef ? 'no agent' : 'workspace closed')}
               </Text>
               <Text dimColor>
-                {thread.branch || 'ohne Branch'} · +{thread.ahead} / −{thread.behind}
-                {thread.dirty > 0 ? ` · ${thread.dirty} uncommittet` : ' · sauber'} · {mergeLabel}
+                {thread.branch || '(no branch)'} · +{thread.ahead} / −{thread.behind}
+                {thread.dirty > 0 ? ` · ${thread.dirty} uncommitted` : ' · clean'} · {mergeLabel}
               </Text>
               <Box flexDirection="row" gap={1}>
                 {thread.workspaceRef !== '' && (
                   <Button key={`open-${thread.slug}`} onPress={() => void openWorkspace($, thread)}>
-                    Öffnen
+                    Open
                   </Button>
                 )}
                 {canHandOver && (
                   <Button key={`both-${thread.slug}`} onPress={() => void handOver($, thread)}>
-                    Übergeben & Aufräumen → Claude
+                    Hand over & clean up → Claude
                   </Button>
                 )}
                 {thread.dirty === 0 && (
                   <Button key={`clean-${thread.slug}`} onPress={() => void cleanUp($, thread.slug)}>
-                    {pending === `clean:${thread.slug}` ? 'Wirklich aufräumen?' : 'Aufräumen'}
+                    {pending === `clean:${thread.slug}` ? 'Really clean up?' : 'Clean up'}
                   </Button>
                 )}
               </Box>

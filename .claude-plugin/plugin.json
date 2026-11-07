@@ -1,6 +1,11 @@
 {
-  "name": "threads",
+  "name": "wakemux",
   "version": "0.2.0",
-  "description": "cmux threads: pane with status, merge and cleanup, plus automatic report-back from each thread to the main session",
+  "description": "Run side tasks as Claude Code threads in cmux worktrees; each thread reports back to the main session and wakes it",
+  "author": {
+    "name": "Matze Schmidbauer",
+    "url": "https://github.com/mschmdb"
+  },
+  "license": "MIT",
   "types": "./types/index.d.ts"
 }
