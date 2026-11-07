@@ -209,6 +209,8 @@ Without a marketplace: `git clone` plus `install.sh`.
 
 ## Documentation plan
 
+Written on 2026-11-07, after step 6: README (without install section), `docs/concepts.md`, `docs/configuration.md`, `docs/troubleshooting.md`, `docs/security.md`, `docs/limitations.md`, `SECURITY.md`. Still open: `docs/install.md` and the README quick start (after step 7), the recording, `CHANGELOG.md`, `CONTRIBUTING.md`. Found while writing the docs: `wakemux new` does not check that copied files are ignored in the thread's branch; a thread could commit a copied `.env`. A `git check-ignore` warning or skip would close this. Before release: enable private vulnerability reporting on GitHub (SECURITY.md points to it; not checked), and let the author write the maintenance status for the README.
+
 - `README.md`: one-sentence summary, the problem it solves, a 60-second quick start, a short recording (start a thread, the report arrives in the main session, merge), requirements with versions.
 - `docs/concepts.md`: thread, main session, orchestrator, escalation, report-back, merging by repository rules. One diagram.
 - `docs/configuration.md`: every setting, precedence, an example per configuration path.
