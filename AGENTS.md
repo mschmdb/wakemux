@@ -19,6 +19,7 @@ Rules for AI coding agents working in this repository. Human contributors follow
 | `.claude-plugin/plugin.json` | Plugin manifest. |
 | `hooks/` | The Claude Code mod: `register.tsx` (event handlers, status pane, report-back), `parse.ts` (pure functions) and their tests. |
 | `types/` | Snapshot types and the plugin state declaration. |
+| `skills/setup/SKILL.md` | Installs from a clone, runs `wakemux doctor`, writes the user's settings. Loads as `/wakemux:setup`; also read straight from a clone before install. |
 | `skills/thread/SKILL.md` | Instructions for the main session: start, orchestrate, merge and clean up threads. Loads as `/wakemux:thread`. |
 | `bin/wakemux` | Shell script. `new` creates the worktree, the branch and the cmux workspace; `done` removes the worktree and, if merged, the branch (the caller closes the workspace first). Claude Code puts `bin/` on the Bash tool's `PATH` while the plugin is enabled. |
 | `tests/` | bats tests for `bin/wakemux` and `install.sh`. |

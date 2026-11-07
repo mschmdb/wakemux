@@ -24,12 +24,15 @@ Each thread shows its state as a pill in the cmux sidebar. The optional `/wakemu
 
 ## Install
 
-```sh
-claude plugin marketplace add mschmdb/wakemux
-claude plugin install wakemux@wakemux
+Open Claude Code in a cmux terminal and paste:
+
+```
+Set up wakemux: clone https://github.com/mschmdb/wakemux to ~/.local/share/wakemux and follow skills/setup/SKILL.md in it.
 ```
 
-Then start a new Claude Code session from a cmux terminal and ask for a task "as a thread". [docs/install.md](docs/install.md) covers updates, uninstalling and installing from a clone.
+Claude clones the repository, runs `install.sh`, checks your machine with `wakemux doctor` and asks about your settings. Then start a new session and ask for a task "as a thread".
+
+[docs/install.md](docs/install.md) has the same steps by hand, the marketplace install, updates and uninstalling.
 
 ## Documentation
 

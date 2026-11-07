@@ -36,6 +36,11 @@ case "$1 ${2:-}" in
 	[ -n "${CMUX_FAIL_NEW:-}" ] && exit 1
 	echo "OK workspace:9"
 	;;
+"ping ")
+	[ -n "${CMUX_DOWN:-}" ] && exit 1
+	echo PONG
+	;;
+"version ") echo "cmux 0.65.2 (113)" ;;
 esac
 exit 0
 EOF

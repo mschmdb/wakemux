@@ -17,6 +17,9 @@ Usage:
       --prompt       first prompt for the new Claude session
       --description  one line shown under the workspace name in the sidebar
 
+  wakemux doctor [--repo <path>]
+      Checks git, python3, lsof, cmux, Claude Code, the plugin install and the settings.
+
   wakemux config [<key>] [--repo <path>]
       Prints the settings this script uses as key=value lines, or one value.
 
@@ -133,7 +136,7 @@ def has_kind(kind, value):
         return isinstance(value, bool)
     return isinstance(value, str)
 
-repo_file = read_file(os.path.join(repo, ".wakemux.json"), ".wakemux.json")
+repo_file = read_file(os.path.join(repo, ".wakemux.json"), ".wakemux.json") if repo else {}
 user_file = read_file(user_path, "config.json")
 
 values = {}
@@ -454,6 +457,55 @@ cmd_done() {
 	fi
 }
 
+# Checks what wakemux needs. Prints one line per check; fails if a FAIL line appears.
+cmd_doctor() {
+	local repo=$1 failed=0 tool claude_path version plugins warnings line
+	check() {
+		printf '%-5s %s\n' "$1" "$2"
+		if [ "$1" = FAIL ]; then failed=1; fi
+	}
+	for tool in git python3 lsof; do
+		if command -v "$tool" >/dev/null; then check ok "$tool"; else check FAIL "$tool not found"; fi
+	done
+	if ! command -v cmux >/dev/null; then
+		check FAIL "cmux not found; install it from https://cmux.dev"
+	elif [ "$(cmux ping 2>/dev/null)" = PONG ]; then
+		check ok "$(cmux version 2>/dev/null | awk '{print "cmux " $2}')"
+	else
+		check FAIL "cmux app not reachable; is cmux running?"
+	fi
+	if [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
+		check ok "inside a cmux terminal"
+	else
+		check warn "not inside a cmux terminal; start Claude Code from one, or reports cannot reach it"
+	fi
+	claude_path=$(command -v claude || true)
+	if [ -z "$claude_path" ]; then
+		check FAIL "Claude Code not found; install it from https://code.claude.com"
+	else
+		version=$(claude --version 2>/dev/null | awk '{print $1}')
+		check ok "Claude Code ${version:-unknown version}"
+		# cmux's wrapper adds the hooks that wake an idle session when a message arrives.
+		case $claude_path in
+		*cmux-cli-shims*) check ok "claude runs through the cmux wrapper" ;;
+		*) check warn "claude does not run through the cmux wrapper ($claude_path); reports may not wake the session" ;;
+		esac
+		plugins=$(claude plugin list 2>/dev/null || true)
+		if [[ $plugins == *wakemux@* ]]; then
+			check ok "wakemux plugin installed"
+		else
+			check warn "wakemux plugin not installed; see docs/install.md"
+		fi
+	fi
+	warnings=$(load_config "$repo" 2>&1 >/dev/null || true)
+	if [ -z "$warnings" ]; then
+		check ok "settings"
+	else
+		while IFS= read -r line; do check warn "settings: ${line#wakemux: warning: }"; done <<<"$warnings"
+	fi
+	return "$failed"
+}
+
 cmd_config() {
 	local key=$1
 	local -a lines=(
@@ -482,9 +534,11 @@ case $1 in -h | --help) usage; exit 0 ;; esac
 
 mode=$1
 shift
-case $mode in new | done | config) ;; *) die "unknown command: $mode" ;; esac
+case $mode in new | done | config | doctor) ;; *) die "unknown command: $mode" ;; esac
 name=""
-if [ "$mode" = "config" ]; then
+if [ "$mode" = "doctor" ]; then
+	:
+elif [ "$mode" = "config" ]; then
 	# An optional setting name instead of a thread name.
 	if [ $# -gt 0 ] && [[ $1 != --* ]]; then name=$1; shift; fi
 else
@@ -509,6 +563,12 @@ while [ $# -gt 0 ]; do
 	shift 2
 done
 
+if [ "$mode" = "doctor" ]; then
+	# The doctor also runs outside a repository, without its .wakemux.json.
+	repo=$(main_checkout "$repo_arg" 2>/dev/null) || repo=""
+	cmd_doctor "$repo"
+	exit
+fi
 repo=$(main_checkout "$repo_arg")
 cfg_worktree_dir="" cfg_branch_prefix="" cfg_copy_files=() cfg_dev_layout="" cfg_dev_command="" cfg_max_threads=0 cfg_pr_status=true
 config=$(load_config "$repo")
