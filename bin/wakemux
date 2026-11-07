@@ -1,27 +1,39 @@
 #!/usr/bin/env bash
 # Opens a side task as its own cmux workspace inside the project's workspace group:
-# git worktree + Claude | browser on the dev server | shell running pnpm dev.
+# git worktree + Claude | browser on the dev server | shell running the dev server.
 set -euo pipefail
 
 usage() {
 	cat <<'EOF'
 Usage:
   wakemux new <name> [--from <ref>] [--repo <path>] [--prompt <text>] [--description <text>]
-      Creates the worktree .claude/worktrees/<name> on branch thread/<name>
-      and opens a workspace in the project's cmux workspace group:
-      Claude on the left, a browser on the top right, pnpm dev on the bottom right.
+      Creates a worktree (default .claude/worktrees/<name>) on a new branch
+      (default thread/<name>) and opens a workspace in the project's cmux
+      workspace group. Projects with a dev script and a known package manager
+      (pnpm, npm, bun) get Claude on the left, a browser on the top right and
+      the dev server on a free port on the bottom right. Other projects get Claude only.
       --from         base ref (default: HEAD of the main checkout)
       --repo         repository path (default: current directory)
       --prompt       first prompt for the new Claude session
       --description  one line shown under the workspace name in the sidebar
-      Without a pnpm project that has a dev script, only Claude opens.
 
   wakemux done <name> [--repo <path>]
-      Removes the worktree and its branch. Stops if there are uncommitted changes.
-      Keeps the branch if it is not merged.
+      Removes the worktree and its branch. Stops if there are uncommitted changes,
+      if a process still runs in the worktree, or if a detached HEAD holds commits
+      that no branch has. Keeps the branch if it is not merged.
+
+Settings, highest precedence first: WAKEMUX_<KEY> environment variables,
+.wakemux.json in the repository, $XDG_CONFIG_HOME/wakemux/config.json
+(default ~/.config/wakemux/config.json). Keys used here:
+  worktreeDir   WAKEMUX_WORKTREE_DIR    default .claude/worktrees
+  branchPrefix  WAKEMUX_BRANCH_PREFIX   default thread/
+  copyFiles     WAKEMUX_COPY_FILES      git-ignored files copied into each worktree, default .env
+  devLayout     WAKEMUX_DEV_LAYOUT      auto or off, default auto
+  devCommand    WAKEMUX_DEV_COMMAND     dev server command, {port} is replaced; default derived
 
 Environment:
-  WAKEMUX_COPY_FILES  git-ignored files copied into each worktree (default: ".env")
+  WAKEMUX_PREVIEW_TIMEOUT  seconds to wait for the dev server before giving up
+                           on the browser reload (default 180)
 EOF
 }
 
@@ -41,12 +53,141 @@ main_checkout() {
 	dirname "$common"
 }
 
+# Prints shell assignments for the settings this script uses; warnings go to stderr.
+# Validation matches hooks/config.ts. Unknown keys are left to the mod, which reports them.
+load_config() {
+	python3 - "$1" <<'PY'
+import json, os, re, shlex, sys
+
+repo = sys.argv[1]
+xdg = os.environ.get("XDG_CONFIG_HOME", "")
+home = os.environ.get("HOME", "")
+user_path = f"{xdg.rstrip('/')}/wakemux/config.json" if xdg.startswith("/") else (f"{home.rstrip('/')}/.config/wakemux/config.json" if home else "")
+
+def warn(text):
+    print(f"wakemux: warning: {text}", file=sys.stderr)
+
+def read_file(path, label):
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        warn(f"{label}: not valid JSON, file ignored")
+        return {}
+    if not isinstance(data, dict):
+        warn(f"{label}: expected a JSON object, file ignored")
+        return {}
+    return data
+
+def inside_path(value):
+    trimmed = value.rstrip("/")
+    if trimmed == "" or trimmed.startswith("/"):
+        return False
+    return all(part not in ("", ".", "..") for part in trimmed.split("/"))
+
+def ref_prefix(value):
+    if value == "" or value.startswith("/") or value.startswith("-"):
+        return False
+    if re.search(r"[\s~^:?*\[\\\x00-\x1f\x7f]|\.\.|@\{|//", value):
+        return False
+    parts = value.split("/")
+    return all(not part.startswith(".") for part in parts) and all(
+        part != "" and not part.endswith(".lock") and not part.endswith(".") for part in parts[:-1]
+    )
+
+SPEC = {
+    "worktreeDir": ("WAKEMUX_WORKTREE_DIR", "string", inside_path, ".claude/worktrees"),
+    "branchPrefix": ("WAKEMUX_BRANCH_PREFIX", "string", ref_prefix, "thread/"),
+    "copyFiles": ("WAKEMUX_COPY_FILES", "list", lambda v: all(inside_path(p) for p in v), [".env"]),
+    "devLayout": ("WAKEMUX_DEV_LAYOUT", "string", lambda v: v in ("auto", "off"), "auto"),
+    "devCommand": ("WAKEMUX_DEV_COMMAND", "string", lambda v: True, ""),
+}
+
+def has_kind(kind, value):
+    if kind == "list":
+        return isinstance(value, list) and all(isinstance(item, str) for item in value)
+    return isinstance(value, str)
+
+repo_file = read_file(os.path.join(repo, ".wakemux.json"), ".wakemux.json")
+user_file = read_file(user_path, "config.json")
+
+values = {}
+for key, (env_name, kind, check, default) in SPEC.items():
+    candidates = []
+    env_text = os.environ.get(env_name, "")
+    if env_text != "":
+        candidates.append((env_name, re.split(r"[\s,]+", env_text.strip()) if kind == "list" else env_text))
+    if key in repo_file:
+        candidates.append((f".wakemux.json {key}", repo_file[key]))
+    if key in user_file:
+        candidates.append((f"config.json {key}", user_file[key]))
+    values[key] = default
+    for label, value in candidates:
+        if kind == "list" and isinstance(value, list):
+            value = [item for item in value if item != ""]
+        if has_kind(kind, value) and check(value):
+            values[key] = value.rstrip("/") if key == "worktreeDir" else value
+            break
+        warn(f"{label}: invalid value {json.dumps(value)[:60]}, ignored")
+
+print(f"cfg_worktree_dir={shlex.quote(values['worktreeDir'])}")
+print(f"cfg_branch_prefix={shlex.quote(values['branchPrefix'])}")
+print("cfg_copy_files=(" + " ".join(shlex.quote(item) for item in values["copyFiles"]) + ")")
+print(f"cfg_dev_layout={shlex.quote(values['devLayout'])}")
+print(f"cfg_dev_command={shlex.quote(values['devCommand'])}")
+PY
+}
+
+# Prints the dev server command with a {port} placeholder, or nothing when no dev layout applies.
+dev_command() {
+	python3 - "$1" "$2" "$3" <<'PY'
+import json, os, re, sys
+
+repo, layout, override = sys.argv[1], sys.argv[2], sys.argv[3]
+if layout == "off":
+    sys.exit()
+if override:
+    print(override)
+    sys.exit()
+try:
+    with open(os.path.join(repo, "package.json"), encoding="utf-8") as handle:
+        package = json.load(handle)
+except (OSError, ValueError):
+    sys.exit()
+if not isinstance(package, dict) or "dev" not in (package.get("scripts") or {}):
+    sys.exit()
+
+manager = str(package.get("packageManager") or "").split("@")[0]
+if not manager:
+    for lockfile, name in (("pnpm-lock.yaml", "pnpm"), ("bun.lock", "bun"), ("bun.lockb", "bun"), ("package-lock.json", "npm")):
+        if os.path.exists(os.path.join(repo, lockfile)):
+            manager = name
+            break
+if manager not in ("pnpm", "npm", "bun"):
+    sys.exit()
+
+# Vite takes --port; other dev servers commonly read PORT. Appended flags reach the last command
+# of a script, so only a single plain vite command gets them.
+script = str(package["scripts"]["dev"])
+vite = " --port {port} --strictPort" if re.fullmatch(r"\s*((npx|bunx|pnpm exec)\s+)?vite(\s+[^;&|<>`$()]*)?", script) else ""
+install = {"pnpm": "pnpm install --prefer-offline", "npm": "npm install", "bun": "bun install"}[manager]
+run = {"pnpm": "pnpm dev" + vite, "npm": "npm run dev" + (" --" + vite if vite else ""), "bun": "bun run dev" + vite}[manager]
+print(f"{install} && PORT={{port}} {run}")
+PY
+}
+
 find_group_for_repo() {
-	local repo=$1 refs ref cwd
+	local repo=$1 refs ref anchor cwd
 	refs=$(cmux workspace-group list --json | python3 -c '
 import json, sys
-for g in json.load(sys.stdin).get("groups", []):
-    print(g["ref"], g["anchor_workspace_ref"])')
+try:
+    groups = json.load(sys.stdin).get("groups", [])
+except (ValueError, AttributeError):
+    groups = []
+for g in groups:
+    print(g.get("ref", ""), g.get("anchor_workspace_ref", ""))') || refs=""
 	while read -r ref anchor; do
 		[ -z "$ref" ] && continue
 		cwd=$(cmux sidebar-state --workspace "$anchor" | sed -n 's/^cwd=//p')
@@ -58,7 +199,7 @@ for g in json.load(sys.stdin).get("groups", []):
 # the calling workspace moves below it as "main". The header hides its own
 # agent status, so the real checkout must not be the anchor.
 create_group_from_caller() {
-	local repo=$1 caller_cwd title
+	local repo=$1 caller_cwd title group
 	[ -n "${CMUX_WORKSPACE_ID:-}" ] || return 0
 	caller_cwd=$(cmux sidebar-state --workspace "$CMUX_WORKSPACE_ID" | sed -n 's/^cwd=//p')
 	[ "$caller_cwd" = "$repo" ] || return 0
@@ -71,8 +212,10 @@ def walk(node):
         for value in node.values(): walk(value)
     elif isinstance(node, list):
         for value in node: walk(value)
-walk(json.load(sys.stdin))' "$CMUX_WORKSPACE_ID")
-	local group
+try:
+    walk(json.load(sys.stdin))
+except ValueError:
+    pass' "$CMUX_WORKSPACE_ID")
 	group=$(cmux workspace-group create --name "${title:-$(basename "$repo")}" --cwd "$repo" | awk '{print $2}')
 	[ -n "$group" ] || return 0
 	cmux workspace-group add --group "$group" --workspace "$CMUX_WORKSPACE_ID" >/dev/null
@@ -96,47 +239,93 @@ walk(json.load(sys.stdin))' "$1"
 }
 
 build_layout() {
-	WAKEMUX_PROMPT="${2:-}" python3 -c '
+	WAKEMUX_PROMPT="$3" python3 - "$1" "$2" <<'PY'
 import json, os, shlex, sys
-port = sys.argv[1]
+
+port, dev = sys.argv[1], sys.argv[2]
 prompt = os.environ.get("WAKEMUX_PROMPT", "")
-claude = "claude " + shlex.quote(prompt) if prompt else "claude"
+claude = {"type": "terminal", "name": "Claude", "command": "claude " + shlex.quote(prompt) if prompt else "claude", "focus": True}
 if not port:
-    print(json.dumps({"pane": {"surfaces": [{"type": "terminal", "name": "Claude", "command": claude, "focus": True}]}}))
+    print(json.dumps({"pane": {"surfaces": [claude]}}, indent=1))
     sys.exit()
 print(json.dumps({
     "direction": "horizontal", "split": 0.55,
     "children": [
-        {"pane": {"surfaces": [{"type": "terminal", "name": "Claude", "command": claude, "focus": True}]}},
+        {"pane": {"surfaces": [claude]}},
         {"direction": "vertical", "split": 0.65, "children": [
             {"pane": {"surfaces": [{"type": "browser", "name": "Preview", "url": f"http://localhost:{port}"}]}},
-            {"pane": {"surfaces": [{"type": "terminal", "name": "Dev",
-                "command": f"pnpm install --prefer-offline && pnpm dev --port {port} --strictPort"}]}},
+            {"pane": {"surfaces": [{"type": "terminal", "name": "Dev", "command": dev}]}},
         ]},
     ],
-}))' "$1"
+}, indent=1))
+PY
+}
+
+ensure_excluded() {
+	local repo=$1 pattern="$2/" exclude
+	exclude="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+	mkdir -p "$(dirname "$exclude")"
+	grep -qxF -- "$pattern" "$exclude" 2>/dev/null || echo "$pattern" >>"$exclude"
+}
+
+# A copied file must not land outside the worktree through a symlink the base ref contains.
+path_has_symlink() {
+	local path=$1 part rest=$2
+	while [ -n "$rest" ]; do
+		part=${rest%%/*}
+		[ "$part" = "$rest" ] && rest="" || rest=${rest#*/}
+		path="$path/$part"
+		[ -L "$path" ] && return 0
+	done
+	return 1
+}
+
+rollback_wt="" rollback_branch="" rollback_repo=""
+rollback() {
+	[ -n "$rollback_wt" ] || return 0
+	echo "wakemux: failed, removing $rollback_wt" >&2
+	git -C "$rollback_repo" worktree remove --force "$rollback_wt" 2>/dev/null || true
+	git -C "$rollback_repo" branch -D "$rollback_branch" >/dev/null 2>&1 || true
 }
 
 cmd_new() {
 	local name=$1 base=$2 repo=$3 prompt=$4 description=$5
-	local wt="$repo/.claude/worktrees/$name" branch="thread/$name"
+	local wt="$repo/$cfg_worktree_dir/$name" branch="$cfg_branch_prefix$name"
+	git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "not a valid branch name: $branch"
 	[ -e "$wt" ] && die "worktree already exists: $wt"
-	grep -qx '.claude/worktrees/' "$(git -C "$repo" rev-parse --git-common-dir)/info/exclude" 2>/dev/null ||
-		echo '.claude/worktrees/' >>"$(git -C "$repo" rev-parse --git-common-dir)/info/exclude"
+	ensure_excluded "$repo" "$cfg_worktree_dir"
 
-	git -C "$repo" worktree add -b "$branch" "$wt" "$base"
-	trap 'echo "wakemux: failed, removing $wt" >&2; git -C "$repo" worktree remove --force "$wt"; git -C "$repo" branch -D "$branch" >/dev/null' ERR
+	git -C "$repo" worktree add -q -b "$branch" "$wt" "$base"
+	# Any failure from here on removes the worktree and the branch again.
+	rollback_wt=$wt rollback_branch=$branch rollback_repo=$repo
+	trap rollback EXIT
+
 	# The wakemux mod reports back to the session that started the thread, even across repos.
-	[ -n "${CMUX_WORKSPACE_ID:-}" ] && echo "$CMUX_WORKSPACE_ID" >"$(git -C "$wt" rev-parse --absolute-git-dir)/wakemux-parent"
-	for file in ${WAKEMUX_COPY_FILES:-.env}; do
+	if [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
+		echo "$CMUX_WORKSPACE_ID" >"$(git -C "$wt" rev-parse --absolute-git-dir)/wakemux-parent"
+	fi
+	local file
+	for file in ${cfg_copy_files[@]+"${cfg_copy_files[@]}"}; do
+		[ -e "$repo/$file" ] || continue
+		if [ -e "$wt/$file" ] || [ -L "$wt/$file" ]; then
+			echo "wakemux: warning: skipped $file, it already exists in the worktree" >&2
+			continue
+		fi
+		if path_has_symlink "$wt" "$file"; then
+			echo "wakemux: warning: skipped $file, its path in the worktree contains a symlink" >&2
+			continue
+		fi
+		mkdir -p "$(dirname "$wt/$file")"
 		# cp -c clones on APFS: instant, no extra disk space until the copy changes
-		[ -e "$repo/$file" ] && cp -c "$repo/$file" "$wt/$file"
+		cp -c "$repo/$file" "$wt/$file" 2>/dev/null || cp "$repo/$file" "$wt/$file"
 	done
 
-	local port group ws
-	port=""
-	if [ -f "$repo/pnpm-lock.yaml" ] && grep -q '"dev"' "$repo/package.json" 2>/dev/null; then
+	# The worktree holds the base ref's package.json, which may differ from the main checkout's.
+	local dev port="" group ws
+	dev=$(dev_command "$wt" "$cfg_dev_layout" "$cfg_dev_command")
+	if [ -n "$dev" ]; then
 		port=$(next_free_port)
+		dev=${dev//\{port\}/$port}
 	fi
 	group=$(find_group_for_repo "$repo")
 	local group_args=()
@@ -151,41 +340,59 @@ cmd_new() {
 	[ -n "$description" ] && description_args=(--description "$description")
 	# ${arr[@]+...}: macOS ships bash 3.2, where an empty array trips set -u
 	ws=$(CMUX_QUIET=1 cmux new-workspace --name "$name" ${description_args[@]+"${description_args[@]}"} --cwd "$wt" ${group_args[@]+"${group_args[@]}"} \
-		--focus false --layout "$(build_layout "$port" "$prompt")" | awk '{print $2}')
+		--focus false --layout "$(build_layout "$port" "$dev" "$prompt")" | awk '{print $2}')
+	[ -n "$ws" ] || exit 1
 
-	trap - ERR
+	rollback_wt=""
+	trap - EXIT
 
-	# The browser opens before Vite listens; reload it once the port is up.
-	[ -n "$port" ] && (
-		for _ in $(seq 1 180); do
-			if ! port_free "$port"; then
-				surface=$(find_browser_surface "$ws")
-				[ -n "$surface" ] && cmux browser --surface "$surface" reload >/dev/null 2>&1
-				exit 0
-			fi
-			sleep 1
-		done
-	) >/dev/null 2>&1 &
-	disown 2>/dev/null || true
+	# The browser opens before the dev server listens; reload it once the port is up.
+	local timeout=${WAKEMUX_PREVIEW_TIMEOUT:-180}
+	if [ -n "$port" ] && [ "$timeout" -gt 0 ] 2>/dev/null; then
+		(
+			waited=0
+			while [ "$waited" -lt "$timeout" ]; do
+				if ! port_free "$port"; then
+					surface=$(find_browser_surface "$ws")
+					[ -n "$surface" ] && cmux browser --surface "$surface" reload >/dev/null 2>&1
+					exit 0
+				fi
+				sleep 1
+				waited=$((waited + 1))
+			done
+		) </dev/null >/dev/null 2>&1 &
+		disown 2>/dev/null || true
+	fi
 
 	echo "Thread $name: $ws, branch $branch (from $base)${port:+, port $port}"
 }
 
+# True when a process has its working directory in the worktree or below it.
+worktree_in_use() {
+	lsof -nP -d cwd -Fn 2>/dev/null | awk -v dir="$1" '
+		/^n/ { path = substr($0, 2); if (path == dir || index(path, dir "/") == 1) found = 1 }
+		END { exit found ? 0 : 1 }'
+}
+
 cmd_done() {
 	local name=$1 repo=$2
-	local wt="$repo/.claude/worktrees/$name" branch="thread/$name"
+	local wt="$repo/$cfg_worktree_dir/$name" branch="$cfg_branch_prefix$name"
 	[ -d "$wt" ] || die "no worktree: $wt"
 	[ -z "$(git -C "$wt" status --porcelain --ignored=no)" ] || die "uncommitted changes in $wt, commit them first"
-	# grep -c instead of -q: with pipefail, -q would SIGPIPE lsof and fail the pipeline
-	if [ "$(lsof -nP -d cwd -Fn 2>/dev/null | grep -c "^n$wt")" -gt 0 ]; then
+	if ! git -C "$wt" symbolic-ref -q HEAD >/dev/null && [ -z "$(git -C "$wt" for-each-ref --contains HEAD --format='%(refname)' refs/heads)" ]; then
+		die "$wt is on a detached HEAD with commits no branch holds; create a branch for them first"
+	fi
+	if worktree_in_use "$wt"; then
 		die "processes still run in $wt, close the workspace first"
 	fi
 
 	git -C "$repo" worktree remove --force "$wt"
 	if git -C "$repo" branch -d "$branch" >/dev/null 2>&1; then
 		echo "Removed worktree and branch $branch."
-	else
+	elif git -C "$repo" rev-parse --verify -q "refs/heads/$branch" >/dev/null; then
 		echo "Removed worktree. Kept branch $branch, it is not merged."
+	else
+		echo "Removed worktree."
 	fi
 }
 
@@ -203,15 +410,22 @@ shift
 base="" repo_arg="$PWD" prompt="" description=""
 while [ $# -gt 0 ]; do
 	case $1 in
-	--from) base=$2; shift 2 ;;
-	--repo) repo_arg=$2; shift 2 ;;
-	--prompt) prompt=$2; shift 2 ;;
-	--description) description=$2; shift 2 ;;
+	--from | --repo | --prompt | --description) [ $# -ge 2 ] || die "$1 needs a value" ;;
 	*) die "unknown option: $1" ;;
 	esac
+	case $1 in
+	--from) base=$2 ;;
+	--repo) repo_arg=$2 ;;
+	--prompt) prompt=$2 ;;
+	--description) description=$2 ;;
+	esac
+	shift 2
 done
 
 repo=$(main_checkout "$repo_arg")
+cfg_worktree_dir="" cfg_branch_prefix="" cfg_copy_files=() cfg_dev_layout="" cfg_dev_command=""
+config=$(load_config "$repo")
+eval "$config"
 if [ "$mode" = "done" ]; then
 	cmd_done "$name" "$repo"
 else

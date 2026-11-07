@@ -5,7 +5,7 @@ description: Starts a side task as its own Claude Code session ("thread") in cmu
 
 # Threads in cmux
 
-A thread is its own workspace in the project's cmux workspace group. It has its own worktree under `.claude/worktrees/<slug>` on branch `thread/<slug>` and its own Claude session. In pnpm projects with a `dev` script, a browser and the dev server run next to it on a free port.
+A thread is its own workspace in the project's cmux workspace group. It has its own worktree under `.claude/worktrees/<slug>` on branch `thread/<slug>` (both configurable, see `wakemux --help`) and its own Claude session. In projects with a `dev` script and pnpm, npm or bun, a browser and the dev server run next to it on a free port.
 
 ## Start
 
@@ -26,9 +26,9 @@ For several threads at once, run one command per task.
 
 Only when the user asks for it ("thread X is done", "clean up X").
 
-1. Check with `git -C .claude/worktrees/<slug> status --short` that everything is committed. If not, say so and stop.
+1. Check with `git -C <worktree> status --short` that everything is committed (`git worktree list` shows the path). If not, say so and stop.
 2. Close the workspace: `CMUX_QUIET=1 cmux close-workspace --workspace <ref> --force`. `cmux tree --all` lists the ref; the workspace name is the slug.
-3. `wakemux done <slug>` removes the worktree and the branch. An unmerged branch stays; tell the user.
+3. `wakemux done <slug>` removes the worktree and the branch. An unmerged branch stays; tell the user. If it refuses because of a detached HEAD, ask the user before you touch those commits.
 
 ## Orchestrate
 
@@ -50,7 +50,7 @@ Limits: never work around a repository rule (for example branch protection with 
 Only when the user asks for it ("merge thread X", "merge X back"). It runs in the main checkout, not in the thread: the target branch is checked out there, and a worktree cannot check it out.
 
 1. Check that the thread worktree and the main checkout are clean (`git status --short`). If not, say so and stop.
-2. In the main checkout: `git merge --no-ff thread/<slug>`. On conflicts: `git merge --abort`, name the conflicting files, stop.
+2. In the main checkout: `git merge --no-ff <branch>` (default `thread/<slug>`). On conflicts: `git merge --abort`, name the conflicting files, stop.
 3. Clean up afterwards if the user asks (see above). "Merge and clean up" means both.
 
 If a thread is asked in its own workspace to merge, it answers that the merge runs in the project's main workspace, and offers `git rebase <target branch>` in the thread in case the target branch has moved on.

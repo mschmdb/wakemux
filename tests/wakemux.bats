@@ -1,26 +1,7 @@
 #!/usr/bin/env bats
-# CLI tests for bin/wakemux that need git but no cmux.
+# Tests for the command line and `wakemux done`.
 
-WAKEMUX="$BATS_TEST_DIRNAME/../bin/wakemux"
-
-setup() {
-	REPO="$BATS_TEST_TMPDIR/repo"
-	git init -q -b main "$REPO"
-	git -C "$REPO" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m init
-}
-
-# A failing [[ ]] does not stop a bats test on bash 3.2, so assertions go through a function.
-output_contains() {
-	[[ "$output" == *"$1"* ]] || {
-		echo "expected output to contain: $1" >&2
-		echo "actual output: $output" >&2
-		return 1
-	}
-}
-
-add_thread() {
-	git -C "$REPO" worktree add -q -b "thread/$1" "$REPO/.claude/worktrees/$1"
-}
+load helpers
 
 @test "without arguments it prints usage and fails" {
 	run "$WAKEMUX"
@@ -36,6 +17,7 @@ add_thread() {
 	output_contains "--from"
 	output_contains "--description"
 	output_contains "WAKEMUX_COPY_FILES"
+	output_contains ".wakemux.json"
 }
 
 @test "an unknown command fails" {
@@ -109,4 +91,52 @@ add_thread() {
 	run "$WAKEMUX" done nested
 	[ "$status" -eq 0 ]
 	[ ! -d "$REPO/.claude/worktrees/nested" ]
+}
+
+@test "done refuses a detached worktree whose commits no branch holds" {
+	git -C "$REPO" worktree add -q --detach "$REPO/.claude/worktrees/loose"
+	git -C "$REPO/.claude/worktrees/loose" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m loose
+	run "$WAKEMUX" done loose --repo "$REPO"
+	[ "$status" -eq 1 ]
+	output_contains "detached HEAD"
+	[ -d "$REPO/.claude/worktrees/loose" ]
+}
+
+@test "done removes a detached worktree whose commit a branch holds" {
+	git -C "$REPO" worktree add -q --detach "$REPO/.claude/worktrees/held"
+	run "$WAKEMUX" done held --repo "$REPO"
+	[ "$status" -eq 0 ]
+	[ ! -d "$REPO/.claude/worktrees/held" ]
+}
+
+@test "done refuses while a process runs in the worktree" {
+	add_thread busy
+	(cd "$REPO/.claude/worktrees/busy" && exec sleep 30) &
+	local pid=$!
+	sleep 0.5
+	run "$WAKEMUX" done busy --repo "$REPO"
+	kill "$pid"
+	[ "$status" -eq 1 ]
+	output_contains "processes still run"
+}
+
+@test "a process in a worktree with a longer name does not block done" {
+	add_thread web
+	add_thread web-2
+	(cd "$REPO/.claude/worktrees/web-2" && exec sleep 30) &
+	local pid=$!
+	sleep 0.5
+	run "$WAKEMUX" done web --repo "$REPO"
+	kill "$pid"
+	[ "$status" -eq 0 ]
+	[ ! -d "$REPO/.claude/worktrees/web" ]
+}
+
+@test "done follows the configured worktree folder and branch prefix" {
+	echo '{"worktreeDir": "trees", "branchPrefix": "task/"}' >"$REPO/.wakemux.json"
+	git -C "$REPO" worktree add -q -b task/conf "$REPO/trees/conf"
+	run "$WAKEMUX" done conf --repo "$REPO"
+	[ "$status" -eq 0 ]
+	output_contains "Removed worktree and branch task/conf"
+	[ ! -d "$REPO/trees/conf" ]
 }

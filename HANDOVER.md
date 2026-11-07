@@ -81,7 +81,6 @@ Done in step 2 (2026-11-07):
 
 Still open:
 
-- Dev layout supports pnpm only (step 4).
 - The author's local install (`~/.claude/mods/threads`, `~/.claude/skills/thread`, `~/.local/bin/cmux-aufgabe`) still runs the old version. Threads started by it use `aufgabe/` branches and the `threads-parent` note, which the new mod does not read. Switch over once no old thread is open.
 
 ## Configuration
@@ -90,11 +89,11 @@ Implemented in step 3 in `hooks/config.ts` (pure, tested in `hooks/config.test.t
 
 | Key | Default | Valid values | Used by |
 |---|---|---|---|
-| `worktreeDir` | `.claude/worktrees` | relative path inside the repository | not yet (script, step 4) |
-| `branchPrefix` | `thread/` | prefix that forms a valid branch name with a slug | not yet (script, step 4) |
-| `copyFiles` | `[".env"]` | relative paths inside the repository | not yet (script, step 4; it reads `WAKEMUX_COPY_FILES` itself today) |
-| `devLayout` | `auto` | `auto`, `off` | not yet (script, step 4) |
-| `devCommand` | empty (derived from the package manager) | any string | not yet (script, step 4) |
+| `worktreeDir` | `.claude/worktrees` | relative path inside the repository | script, mod |
+| `branchPrefix` | `thread/` | prefix that forms a valid branch name with a slug | script |
+| `copyFiles` | `[".env"]` | relative paths inside the repository | script |
+| `devLayout` | `auto` | `auto`, `off` | script |
+| `devCommand` | empty (derived from the package manager) | any string; `{port}` is replaced | script |
 | `report` | `true` | boolean | mod |
 | `reportMaxBytes` | `30000` | integer 1000 to 32000; limits the whole message | mod |
 | `prRequiredOrgs` | empty | GitHub organization names | mod |
@@ -108,7 +107,7 @@ Implemented in step 3 in `hooks/config.ts` (pure, tested in `hooks/config.test.t
 Precedence, highest first:
 
 1. Environment variable `WAKEMUX_<KEY>` in upper snake case, for example `WAKEMUX_PR_REQUIRED_ORGS`. Lists are separated by commas or spaces; booleans accept `1/0`, `true/false`, `yes/no`, `on/off`. An empty variable counts as unset.
-2. Plugin `userConfig`. The manifest declares only `prRequiredOrgs`, `copyFiles` and `crossReview`, without defaults, so an unset field does not hide the files below. An empty field counts as unset.
+2. Plugin `userConfig`, mod only. The manifest declares only `prRequiredOrgs` and `crossReview`, without defaults, so an unset field does not hide the files below. An empty field counts as unset. The script cannot see plugin options (Claude Code does not pass them to Bash tool commands), so script settings have no dialog field.
 3. `.wakemux.json` in the main checkout.
 4. `$XDG_CONFIG_HOME/wakemux/config.json`, else `~/.config/wakemux/config.json`.
 5. Defaults in code.
@@ -120,7 +119,9 @@ Decisions made in step 3, to confirm before release:
 - `language` was dropped: only English exists, and a setting with one value adds nothing.
 - `mergePolicy` values `pr` and `merge` are defined but not used yet.
 
-Open: whether `userConfig` shows its dialog when the plugin is loaded with `--plugin-dir` or from a skills directory. Not tested. That is why the file and environment paths exist. The script and the skill do not read the configuration yet; step 4 has to give the script the same precedence, or have the mod pass resolved values.
+The script (step 4) reads environment variables and both files with the same precedence and validation, in Python inside `bin/wakemux`. The validation rules exist twice, in `hooks/config.ts` and `bin/wakemux`; change both together.
+
+Open: whether `userConfig` shows its dialog when the plugin is loaded with `--plugin-dir` or from a skills directory. Not tested. That is why the file and environment paths exist. The skill does not read `mergePolicy` or `crossReview` yet.
 
 Detecting "this repository requires PRs", in order:
 
@@ -213,7 +214,7 @@ Estimated 4 to 6 working days in total. The estimate is not based on measurement
 1. **Import.** (Done.) Copy mod, skill and script into the repository layout (`.claude-plugin/`, `hooks/`, `types/`, `skills/thread/`, `bin/`). Tests pass unchanged. Add `AGENTS.md` with the rules from the top of this file.
 2. **Generalize.** (Done.) Translate all text to English, rename commands and options, remove the hard-coded organization and paths. Tests updated first.
 3. **Configuration layer.** (Done.) Loader with the precedence above, unit tests for every source and for invalid values.
-4. **Script.** Detect pnpm, npm and bun; `shellcheck` clean; bats tests for `new` and `done`.
+4. **Script.** (Done.) Detect pnpm, npm and bun; `shellcheck` clean; bats tests for `new` and `done`.
 5. **Report-back hardening.** Delivery check, `SendMessage` fallback, desktop notification, hop limit, deduplication. Test with an idle main session, a busy one, and one without a poller.
 6. **Status in the cmux sidebar.** Evaluate `cmux set-status`, `cmux set-progress` and `cmux pr` as a replacement for, or addition to, the pane.
 7. **Install paths.** Marketplace and `install.sh`, tested on a fresh macOS user account.
