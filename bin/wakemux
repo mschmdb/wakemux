@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
-# Opens a task as its own cmux workspace inside the project's workspace group:
+# Opens a side task as its own cmux workspace inside the project's workspace group:
 # git worktree + Claude | browser on the dev server | shell running pnpm dev.
 set -euo pipefail
 
 usage() {
 	cat <<'EOF'
 Usage:
-  cmux-aufgabe <name> [--von <ref>] [--repo <pfad>] [--prompt <text>] [--beschreibung <text>]
-      Legt Worktree .claude/worktrees/<name> auf Branch aufgabe/<name> an
-      und öffnet einen Workspace in der Projektgruppe:
-      links Claude, rechts oben Browser, rechts unten pnpm dev.
-      --von   Basis-Ref (Default: HEAD des Haupt-Checkouts)
-      --repo  Repo-Pfad (Default: aktuelles Verzeichnis)
-      --prompt  Startauftrag für das neue Claude
-      --beschreibung  Einzeiler unter dem Workspace-Namen in der Sidebar
-      Ohne pnpm-Projekt mit dev-Script öffnet nur Claude, ohne Browser und Dev-Server.
+  wakemux new <name> [--from <ref>] [--repo <path>] [--prompt <text>] [--description <text>]
+      Creates the worktree .claude/worktrees/<name> on branch thread/<name>
+      and opens a workspace in the project's cmux workspace group:
+      Claude on the left, a browser on the top right, pnpm dev on the bottom right.
+      --from         base ref (default: HEAD of the main checkout)
+      --repo         repository path (default: current directory)
+      --prompt       first prompt for the new Claude session
+      --description  one line shown under the workspace name in the sidebar
+      Without a pnpm project that has a dev script, only Claude opens.
 
-  cmux-aufgabe fertig <name> [--repo <pfad>]
-      Entfernt Worktree und Branch. Bricht ab bei ungesicherten Änderungen.
-      Der Branch bleibt stehen, wenn er nicht gemergt ist.
+  wakemux done <name> [--repo <path>]
+      Removes the worktree and its branch. Stops if there are uncommitted changes.
+      Keeps the branch if it is not merged.
 
-Env:
-  CMUX_AUFGABE_COPY   gitignorte Dateien für den Worktree (Default: ".env local.db")
+Environment:
+  WAKEMUX_COPY_FILES  git-ignored files copied into each worktree (default: ".env")
 EOF
 }
 
-die() { echo "cmux-aufgabe: $*" >&2; exit 1; }
+die() { echo "wakemux: $*" >&2; exit 1; }
 
 port_free() { ! lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
 
@@ -37,7 +37,7 @@ next_free_port() {
 
 main_checkout() {
 	local common
-	common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "kein Git-Repo: $1"
+	common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "not a git repository: $1"
 	dirname "$common"
 }
 
@@ -96,10 +96,10 @@ walk(json.load(sys.stdin))' "$1"
 }
 
 build_layout() {
-	CMUX_AUFGABE_PROMPT="${2:-}" python3 -c '
+	WAKEMUX_PROMPT="${2:-}" python3 -c '
 import json, os, shlex, sys
 port = sys.argv[1]
-prompt = os.environ.get("CMUX_AUFGABE_PROMPT", "")
+prompt = os.environ.get("WAKEMUX_PROMPT", "")
 claude = "claude " + shlex.quote(prompt) if prompt else "claude"
 if not port:
     print(json.dumps({"pane": {"surfaces": [{"type": "terminal", "name": "Claude", "command": claude, "focus": True}]}}))
@@ -119,16 +119,16 @@ print(json.dumps({
 
 cmd_new() {
 	local name=$1 base=$2 repo=$3 prompt=$4 description=$5
-	local wt="$repo/.claude/worktrees/$name" branch="aufgabe/$name"
-	[ -e "$wt" ] && die "Worktree existiert schon: $wt"
+	local wt="$repo/.claude/worktrees/$name" branch="thread/$name"
+	[ -e "$wt" ] && die "worktree already exists: $wt"
 	grep -qx '.claude/worktrees/' "$(git -C "$repo" rev-parse --git-common-dir)/info/exclude" 2>/dev/null ||
 		echo '.claude/worktrees/' >>"$(git -C "$repo" rev-parse --git-common-dir)/info/exclude"
 
 	git -C "$repo" worktree add -b "$branch" "$wt" "$base"
-	trap 'echo "cmux-aufgabe: abgebrochen, entferne $wt" >&2; git -C "$repo" worktree remove --force "$wt"; git -C "$repo" branch -D "$branch" >/dev/null' ERR
-	# The threads mod reports back to the session that started the thread, even across repos.
-	[ -n "${CMUX_WORKSPACE_ID:-}" ] && echo "$CMUX_WORKSPACE_ID" >"$(git -C "$wt" rev-parse --absolute-git-dir)/threads-parent"
-	for file in ${CMUX_AUFGABE_COPY:-.env local.db}; do
+	trap 'echo "wakemux: failed, removing $wt" >&2; git -C "$repo" worktree remove --force "$wt"; git -C "$repo" branch -D "$branch" >/dev/null' ERR
+	# The wakemux mod reports back to the session that started the thread, even across repos.
+	[ -n "${CMUX_WORKSPACE_ID:-}" ] && echo "$CMUX_WORKSPACE_ID" >"$(git -C "$wt" rev-parse --absolute-git-dir)/wakemux-parent"
+	for file in ${WAKEMUX_COPY_FILES:-.env}; do
 		# cp -c clones on APFS: instant, no extra disk space until the copy changes
 		[ -e "$repo/$file" ] && cp -c "$repo/$file" "$wt/$file"
 	done
@@ -144,7 +144,7 @@ cmd_new() {
 	if [ -n "$group" ]; then
 		group_args=(--group "$group" --group-placement end)
 	else
-		echo "Hinweis: keine Workspace-Gruppe für $repo, Workspace landet ungruppiert." >&2
+		echo "Note: no workspace group for $repo, the workspace opens ungrouped." >&2
 	fi
 
 	local description_args=()
@@ -168,50 +168,51 @@ cmd_new() {
 	) >/dev/null 2>&1 &
 	disown 2>/dev/null || true
 
-	echo "Aufgabe $name: $ws, Branch $branch (von $base)${port:+, Port $port}"
+	echo "Thread $name: $ws, branch $branch (from $base)${port:+, port $port}"
 }
 
 cmd_done() {
 	local name=$1 repo=$2
-	local wt="$repo/.claude/worktrees/$name" branch="aufgabe/$name"
-	[ -d "$wt" ] || die "kein Worktree: $wt"
-	[ -z "$(git -C "$wt" status --porcelain --ignored=no)" ] || die "ungesicherte Änderungen in $wt, erst committen"
+	local wt="$repo/.claude/worktrees/$name" branch="thread/$name"
+	[ -d "$wt" ] || die "no worktree: $wt"
+	[ -z "$(git -C "$wt" status --porcelain --ignored=no)" ] || die "uncommitted changes in $wt, commit them first"
 	# grep -c instead of -q: with pipefail, -q would SIGPIPE lsof and fail the pipeline
 	if [ "$(lsof -nP -d cwd -Fn 2>/dev/null | grep -c "^n$wt")" -gt 0 ]; then
-		die "Prozesse laufen noch in $wt, erst den Workspace schließen"
+		die "processes still run in $wt, close the workspace first"
 	fi
 
 	git -C "$repo" worktree remove --force "$wt"
 	if git -C "$repo" branch -d "$branch" >/dev/null 2>&1; then
-		echo "Worktree und Branch $branch entfernt."
+		echo "Removed worktree and branch $branch."
 	else
-		echo "Worktree entfernt. Branch $branch bleibt, er ist nicht gemergt."
+		echo "Removed worktree. Kept branch $branch, it is not merged."
 	fi
 }
 
 [ $# -ge 1 ] || { usage; exit 1; }
 case $1 in -h | --help) usage; exit 0 ;; esac
 
-mode=new
-if [ "$1" = fertig ]; then mode=done; shift; fi
+mode=$1
+shift
+case $mode in new | done) ;; *) die "unknown command: $mode" ;; esac
 name=${1:-}
-[ -n "$name" ] || die "Name fehlt"
-[[ $name =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "Name nur aus a-z, 0-9 und -"
+[ -n "$name" ] || die "name missing"
+[[ $name =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "name may only contain a-z, 0-9 and -"
 shift
 
 base="" repo_arg="$PWD" prompt="" description=""
 while [ $# -gt 0 ]; do
 	case $1 in
-	--von) base=$2; shift 2 ;;
+	--from) base=$2; shift 2 ;;
 	--repo) repo_arg=$2; shift 2 ;;
 	--prompt) prompt=$2; shift 2 ;;
-	--beschreibung) description=$2; shift 2 ;;
-	*) die "unbekannte Option: $1" ;;
+	--description) description=$2; shift 2 ;;
+	*) die "unknown option: $1" ;;
 	esac
 done
 
 repo=$(main_checkout "$repo_arg")
-if [ "$mode" = done ]; then
+if [ "$mode" = "done" ]; then
 	cmd_done "$name" "$repo"
 else
 	cmd_new "$name" "${base:-$(git -C "$repo" rev-parse --abbrev-ref HEAD)}" "$repo" "$prompt" "$description"
