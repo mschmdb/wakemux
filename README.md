@@ -32,7 +32,14 @@ Set up wakemux: clone https://github.com/mschmdb/wakemux to ~/.local/share/wakem
 
 Claude clones the repository, runs `install.sh`, checks your machine with `wakemux doctor` and asks about your settings. Then start a new session and ask for a task "as a thread".
 
-[docs/install.md](docs/install.md) has the same steps by hand, the marketplace install, updates and uninstalling.
+What the install changes:
+
+- a clone of this repository, by default in `~/.local/share/wakemux`
+- a link `~/.claude/skills/wakemux` to the clone, which Claude Code loads as a plugin
+- a link `~/.local/bin/wakemux` to the shell script
+- only if you agree: a marked `PATH` block in your shell profile, and your settings in `~/.config/wakemux/config.json`. wakemux backs up both files before the first change.
+
+When you start threads, wakemux creates worktrees, branches and cmux workspaces, and adds the worktree folder (default `.claude/worktrees/`) to `.git/info/exclude` of the repository. `install.sh --uninstall --purge`, or asking the setup skill to remove wakemux, removes the links and the `PATH` block, restores or removes the settings file, and takes the exclude line out of repositories without open threads. It leaves the clone, your threads and the cmux workspaces for you to decide. [docs/install.md](docs/install.md#what-wakemux-changes-on-your-machine) lists every change and how to undo it, and has the manual steps, the marketplace install and updates.
 
 ## Documentation
 

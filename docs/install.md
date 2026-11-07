@@ -71,6 +71,46 @@ claude plugin uninstall wakemux@wakemux
 claude plugin marketplace remove wakemux
 ```
 
+## What wakemux changes on your machine
+
+Every file and setting wakemux touches, and how to undo it. "purge" means `install.sh --uninstall --purge`.
+
+### At install
+
+| What | Clone install | Marketplace install | Undo |
+|---|---|---|---|
+| The code | the clone folder you chose, e.g. `~/.local/share/wakemux` | Claude Code copies it to `~/.claude/plugins/marketplaces/wakemux` and `~/.claude/plugins/cache/wakemux` | delete the clone folder / `claude plugin uninstall` and `claude plugin marketplace remove` |
+| Plugin registration (marketplace paths and keys as seen with Claude Code 2.1.319; Claude Code manages them) | link `~/.claude/skills/wakemux` to the clone | entries `extraKnownMarketplaces.wakemux` and `enabledPlugins."wakemux@wakemux"` in `~/.claude/settings.json`, plus Claude Code's own lists in `~/.claude/plugins/` | `install.sh --uninstall` / the two `claude plugin` commands |
+| Shell command | link `~/.local/bin/wakemux` (not with `--no-bin`) | none | `install.sh --uninstall` |
+| `PATH` | only with `--add-path`: a block marked `# >>> wakemux >>>` at the end of `~/.zshrc` or `~/.bash_profile`, after a backup | none | `install.sh --uninstall` removes the block |
+
+With `CLAUDE_CONFIG_DIR` set, `$CLAUDE_CONFIG_DIR` takes the place of `~/.claude`.
+
+### When you configure it
+
+| What | Undo |
+|---|---|
+| `~/.config/wakemux/config.json` (or under `$XDG_CONFIG_HOME`), changed by `wakemux config set` and `unset`. The first change backs up the original. | purge restores the original, or removes the file if wakemux created it |
+| `~/.local/state/wakemux/` (or under `$XDG_STATE_HOME`): `manifest.tsv` lists what wakemux changed, `backups/` holds the originals, `config.lock` | purge deletes the folder |
+
+The setup skill changes files only through these commands.
+
+### While you use it
+
+| What | Where | Undo |
+|---|---|---|
+| One worktree per thread | `<repository>/.claude/worktrees/<slug>` (setting `worktreeDir`) | `wakemux done <slug>` |
+| One branch per thread | `thread/<slug>` (setting `branchPrefix`) | `wakemux done` deletes it once merged; an unmerged branch stays until you delete it |
+| Copied files, by default `.env` | inside each worktree | removed with the worktree |
+| Notes for the report-back: `wakemux-parent`, `wakemux-parent-session` | the worktree's git folder, `<repository>/.git/worktrees/<slug>/` | removed with the worktree |
+| The line `<worktreeDir>/`, by default `.claude/worktrees/` | `<repository>/.git/info/exclude`, once per repository, only if missing | purge removes it in repositories without open threads |
+| A lock while a thread starts | `<repository>/.git/wakemux.lock` | removed when the start ends |
+| cmux: a workspace per thread, a workspace group per project with your calling workspace renamed `main`, a sidebar pill per thread, desktop notifications, agent messages | the cmux app | close workspaces in cmux; wakemux does not undo the group or the rename |
+| `WAKEMUX_PARENT_SESSION` | environment of each running Claude Code session | ends with the session |
+| The pane's and the report's state | Claude Code's session state | managed by Claude Code |
+
+wakemux hands each report to cmux (`cmux agent message`) or to Claude Code's cross-session messaging. The receiving Claude Code session sends it to the model like any other input. Other network access comes from what wakemux starts: the setup's `git clone` and `git pull`, the dev pane's `pnpm install`, `npm install` or `bun install`, and `gh` and `git push` when the main session lands a thread through a PR.
+
 ## Uninstall and restore
 
 wakemux notes every file it changes in `~/.local/state/wakemux/manifest.tsv` (or under `$XDG_STATE_HOME`):
