@@ -6,7 +6,7 @@ import type { Snapshot, ThreadRow } from '../types'
 const PANE = {
   plugin: 'wakemux',
   component: 'Pane',
-  requestId: 'threads',
+  requestId: 'wakemux',
   props: {
     title: 'Threads',
     isFocused: false,

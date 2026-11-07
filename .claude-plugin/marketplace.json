@@ -1,0 +1,11 @@
+{
+  "name": "wakemux",
+  "owner": { "name": "Matze Schmidbauer", "url": "https://github.com/mschmdb" },
+  "plugins": [
+    {
+      "name": "wakemux",
+      "source": "./",
+      "description": "Run side tasks as Claude Code threads in cmux worktrees; each thread reports back to the main session and wakes it"
+    }
+  ]
+}

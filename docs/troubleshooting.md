@@ -10,7 +10,7 @@ cmux agent inbox --limit 5
 
 - **`queued` for a long time:** a likely cause is that the receiving session has no running cmux poller. Claude Code sessions started by cmux run `cmux hooks claude inbox-wait` in the background; check with `pgrep -fl inbox-wait`. In the author's test, a SendMessage to such a session woke it and started a new poller. Restarting the session may help as well (not verified). wakemux forwards a report through Claude Code after 15 seconds in this case; if you saw neither the report nor a desktop notification, read the debug log (`claude --debug`) of the thread session for lines starting with `wakemux:`.
 - **`failed`:** agent messages may be off for that session. Check with `cmux agent messages status`, turn them on with `cmux agent messages on`.
-- **Nothing listed:** the thread did not send. Check `WAKEMUX_REPORT` and the `report` setting (`wakemux config` does not show it; the `/threads` pane shows setting warnings).
+- **Nothing listed:** the thread did not send. Check `WAKEMUX_REPORT` and the `report` setting (`wakemux config` does not show it; the `/wakemux` pane shows setting warnings).
 
 A session started outside cmux, for example in another terminal app, has no cmux hooks and receives no cmux messages.
 

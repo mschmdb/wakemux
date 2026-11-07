@@ -7,7 +7,7 @@ import { cmux, dirtyCount, git, isMainSession, loadConfig, mainCheckout, run, se
 import { handOverPrompt, isPrRequiredRemote, parseAgentStatus, parseCounts, parseCwd, parseWorktrees, workspaceRefsByTitle } from './parse'
 import { publishSessionId, sendReport } from './report'
 
-const PANE = 'threads'
+const PANE = 'wakemux'
 const TITLE = 'Threads'
 const REFRESH_MS = 10_000
 
@@ -141,7 +141,10 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await publishSessionId($)
-    await $.command.register({ name: 'threads', description: 'Show or hide the threads pane' })
+    // Another plugin may own the name; the rest of the start must still run.
+    await $.command
+      .register({ name: 'wakemux', description: 'Show or hide the wakemux threads pane' })
+      .catch(error => $.ui.log(`wakemux: /wakemux not registered: ${String(error)}`, { to: 'debug' }))
     const state = await refresh($)
     const isMainCheckout = await isMainSession($)
     const wasOpen = (await $.ui.panes()).some(pane => pane.id === PANE)
@@ -150,7 +153,7 @@ export const register: Register = (on, options) => {
     return started
   })
 
-  on('command.run', { command: 'threads' }, async $ => {
+  on('command.run', { command: 'wakemux' }, async $ => {
     if (!(await isMainSession($))) {
       return { text: 'The threads pane runs only in the main checkout\'s session (workspace "main").' }
     }

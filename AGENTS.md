@@ -21,14 +21,16 @@ Rules for AI coding agents working in this repository. Human contributors follow
 | `types/` | Snapshot types and the plugin state declaration. |
 | `skills/thread/SKILL.md` | Instructions for the main session: start, orchestrate, merge and clean up threads. Loads as `/wakemux:thread`. |
 | `bin/wakemux` | Shell script. `new` creates the worktree, the branch and the cmux workspace; `done` removes the worktree and, if merged, the branch (the caller closes the workspace first). Claude Code puts `bin/` on the Bash tool's `PATH` while the plugin is enabled. |
-| `tests/` | bats tests for `bin/wakemux`. |
+| `tests/` | bats tests for `bin/wakemux` and `install.sh`. |
+| `install.sh` | Install from a clone: links into the Claude Code skills folder and `~/.local/bin`. |
+| `.claude-plugin/marketplace.json` | Lets the repository act as its own marketplace. |
 
 ## Tests
 
 ```sh
 claude plugin test .   # mod
 bats tests              # script (brew install bats-core)
-shellcheck bin/wakemux
+shellcheck bin/wakemux install.sh
 ```
 
 Type check: load the plugin once with `claude --plugin-dir .` so Claude Code writes `.claude-plugin/types/`, then run `pnpm dlx --package=typescript@5 tsc -p .`.

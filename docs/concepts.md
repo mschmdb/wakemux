@@ -57,4 +57,4 @@ A thread and the main session can answer each other in circles. wakemux counts r
 
 ## Status
 
-Each thread shows a pill in the cmux sidebar, updated when a turn ends (except for a duplicate report): commits ahead, uncommitted changes, errors, or paused reports. The optional `/threads` pane in the main session lists all threads with buttons to open a workspace, hand a finished thread to Claude for landing, and clean up.
+Each thread shows a pill in the cmux sidebar, updated when a turn ends (except for a duplicate report): commits ahead, uncommitted changes, errors, or paused reports. The optional `/wakemux` pane in the main session lists all threads with buttons to open a workspace, hand a finished thread to Claude for landing, and clean up.

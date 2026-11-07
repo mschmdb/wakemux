@@ -12,7 +12,7 @@ Highest precedence first:
 4. `$XDG_CONFIG_HOME/wakemux/config.json`, or `~/.config/wakemux/config.json` when `XDG_CONFIG_HOME` is unset, empty or not an absolute path.
 5. The default.
 
-An invalid value produces a warning, and the next source down applies. The mod also warns about unknown keys. It shows its warnings in the `/threads` pane and in the debug log (`claude --debug`). The script prints warnings about its own settings to stderr and ignores keys it does not use.
+An invalid value produces a warning, and the next source down applies. The mod also warns about unknown keys. It shows its warnings in the `/wakemux` pane and in the debug log (`claude --debug`). The script prints warnings about its own settings to stderr and ignores keys it does not use.
 
 The script `wakemux` runs as a shell command and cannot see the plugin's options dialog. It reads sources 1, 3, 4 and 5. `wakemux config` prints what it resolved.
 
