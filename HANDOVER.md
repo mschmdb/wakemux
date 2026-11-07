@@ -73,7 +73,7 @@ How the parts work together today:
 These are hard-coded today and must become settings or disappear:
 
 - All user-facing text is German (pane, script, skill).
-- `isMtcRemote` in `parse.ts` hard-codes the author's work organization as "PRs required".
+- Done: the "PRs required" organizations come from `WAKEMUX_PR_REQUIRED_ORGS` (space- or comma-separated) instead of a hard-coded organization. The config layer (step 3) replaces the direct environment read.
 - `register.tsx` calls the script at `$HOME/.local/bin/cmux-aufgabe`.
 - Branch prefix `aufgabe/`, command `fertig`, options `--von` and `--beschreibung`.
 - Dev layout supports pnpm only.

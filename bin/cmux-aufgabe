@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# Opens a task as its own cmux workspace inside the project's workspace group:
+# git worktree + Claude | browser on the dev server | shell running pnpm dev.
+set -euo pipefail
+
+usage() {
+	cat <<'EOF'
+Usage:
+  cmux-aufgabe <name> [--von <ref>] [--repo <pfad>] [--prompt <text>] [--beschreibung <text>]
+      Legt Worktree .claude/worktrees/<name> auf Branch aufgabe/<name> an
+      und öffnet einen Workspace in der Projektgruppe:
+      links Claude, rechts oben Browser, rechts unten pnpm dev.
+      --von   Basis-Ref (Default: HEAD des Haupt-Checkouts)
+      --repo  Repo-Pfad (Default: aktuelles Verzeichnis)
+      --prompt  Startauftrag für das neue Claude
+      --beschreibung  Einzeiler unter dem Workspace-Namen in der Sidebar
+      Ohne pnpm-Projekt mit dev-Script öffnet nur Claude, ohne Browser und Dev-Server.
+
+  cmux-aufgabe fertig <name> [--repo <pfad>]
+      Entfernt Worktree und Branch. Bricht ab bei ungesicherten Änderungen.
+      Der Branch bleibt stehen, wenn er nicht gemergt ist.
+
+Env:
+  CMUX_AUFGABE_COPY   gitignorte Dateien für den Worktree (Default: ".env local.db")
+EOF
+}
+
+die() { echo "cmux-aufgabe: $*" >&2; exit 1; }
+
+port_free() { ! lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+
+next_free_port() {
+	local port=5174
+	while ! port_free "$port"; do port=$((port + 1)); done
+	echo "$port"
+}
+
+main_checkout() {
+	local common
+	common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "kein Git-Repo: $1"
+	dirname "$common"
+}
+
+find_group_for_repo() {
+	local repo=$1 refs ref cwd
+	refs=$(cmux workspace-group list --json | python3 -c '
+import json, sys
+for g in json.load(sys.stdin).get("groups", []):
+    print(g["ref"], g["anchor_workspace_ref"])')
+	while read -r ref anchor; do
+		[ -z "$ref" ] && continue
+		cwd=$(cmux sidebar-state --workspace "$anchor" | sed -n 's/^cwd=//p')
+		if [ "$cwd" = "$repo" ]; then echo "$ref"; return; fi
+	done <<<"$refs"
+}
+
+# First thread in a project: a generated workspace becomes the group header,
+# the calling workspace moves below it as "main". The header hides its own
+# agent status, so the real checkout must not be the anchor.
+create_group_from_caller() {
+	local repo=$1 caller_cwd title
+	[ -n "${CMUX_WORKSPACE_ID:-}" ] || return 0
+	caller_cwd=$(cmux sidebar-state --workspace "$CMUX_WORKSPACE_ID" | sed -n 's/^cwd=//p')
+	[ "$caller_cwd" = "$repo" ] || return 0
+	title=$(cmux tree --all --json | python3 -c '
+import json, sys
+target = sys.argv[1]
+def walk(node):
+    if isinstance(node, dict):
+        if node.get("id") == target: print(node.get("title") or ""); sys.exit()
+        for value in node.values(): walk(value)
+    elif isinstance(node, list):
+        for value in node: walk(value)
+walk(json.load(sys.stdin))' "$CMUX_WORKSPACE_ID")
+	local group
+	group=$(cmux workspace-group create --name "${title:-$(basename "$repo")}" --cwd "$repo" | awk '{print $2}')
+	[ -n "$group" ] || return 0
+	cmux workspace-group add --group "$group" --workspace "$CMUX_WORKSPACE_ID" >/dev/null
+	CMUX_QUIET=1 cmux workspace-action --workspace "$CMUX_WORKSPACE_ID" --action rename --title main >/dev/null
+	echo "$group"
+}
+
+find_browser_surface() {
+	cmux tree --all --json | python3 -c '
+import json, sys
+target = sys.argv[1]
+def walk(node, in_ws=False):
+    if isinstance(node, dict):
+        here = in_ws or node.get("ref") == target
+        if here and node.get("type") == "browser":
+            print(node["ref"]); sys.exit()
+        for value in node.values(): walk(value, here)
+    elif isinstance(node, list):
+        for value in node: walk(value, in_ws)
+walk(json.load(sys.stdin))' "$1"
+}
+
+build_layout() {
+	CMUX_AUFGABE_PROMPT="${2:-}" python3 -c '
+import json, os, shlex, sys
+port = sys.argv[1]
+prompt = os.environ.get("CMUX_AUFGABE_PROMPT", "")
+claude = "claude " + shlex.quote(prompt) if prompt else "claude"
+if not port:
+    print(json.dumps({"pane": {"surfaces": [{"type": "terminal", "name": "Claude", "command": claude, "focus": True}]}}))
+    sys.exit()
+print(json.dumps({
+    "direction": "horizontal", "split": 0.55,
+    "children": [
+        {"pane": {"surfaces": [{"type": "terminal", "name": "Claude", "command": claude, "focus": True}]}},
+        {"direction": "vertical", "split": 0.65, "children": [
+            {"pane": {"surfaces": [{"type": "browser", "name": "Preview", "url": f"http://localhost:{port}"}]}},
+            {"pane": {"surfaces": [{"type": "terminal", "name": "Dev",
+                "command": f"pnpm install --prefer-offline && pnpm dev --port {port} --strictPort"}]}},
+        ]},
+    ],
+}))' "$1"
+}
+
+cmd_new() {
+	local name=$1 base=$2 repo=$3 prompt=$4 description=$5
+	local wt="$repo/.claude/worktrees/$name" branch="aufgabe/$name"
+	[ -e "$wt" ] && die "Worktree existiert schon: $wt"
+	grep -qx '.claude/worktrees/' "$(git -C "$repo" rev-parse --git-common-dir)/info/exclude" 2>/dev/null ||
+		echo '.claude/worktrees/' >>"$(git -C "$repo" rev-parse --git-common-dir)/info/exclude"
+
+	git -C "$repo" worktree add -b "$branch" "$wt" "$base"
+	trap 'echo "cmux-aufgabe: abgebrochen, entferne $wt" >&2; git -C "$repo" worktree remove --force "$wt"; git -C "$repo" branch -D "$branch" >/dev/null' ERR
+	# The threads mod reports back to the session that started the thread, even across repos.
+	[ -n "${CMUX_WORKSPACE_ID:-}" ] && echo "$CMUX_WORKSPACE_ID" >"$(git -C "$wt" rev-parse --absolute-git-dir)/threads-parent"
+	for file in ${CMUX_AUFGABE_COPY:-.env local.db}; do
+		# cp -c clones on APFS: instant, no extra disk space until the copy changes
+		[ -e "$repo/$file" ] && cp -c "$repo/$file" "$wt/$file"
+	done
+
+	local port group ws
+	port=""
+	if [ -f "$repo/pnpm-lock.yaml" ] && grep -q '"dev"' "$repo/package.json" 2>/dev/null; then
+		port=$(next_free_port)
+	fi
+	group=$(find_group_for_repo "$repo")
+	local group_args=()
+	if [ -z "$group" ]; then group=$(create_group_from_caller "$repo"); fi
+	if [ -n "$group" ]; then
+		group_args=(--group "$group" --group-placement end)
+	else
+		echo "Hinweis: keine Workspace-Gruppe für $repo, Workspace landet ungruppiert." >&2
+	fi
+
+	local description_args=()
+	[ -n "$description" ] && description_args=(--description "$description")
+	# ${arr[@]+...}: macOS ships bash 3.2, where an empty array trips set -u
+	ws=$(CMUX_QUIET=1 cmux new-workspace --name "$name" ${description_args[@]+"${description_args[@]}"} --cwd "$wt" ${group_args[@]+"${group_args[@]}"} \
+		--focus false --layout "$(build_layout "$port" "$prompt")" | awk '{print $2}')
+
+	trap - ERR
+
+	# The browser opens before Vite listens; reload it once the port is up.
+	[ -n "$port" ] && (
+		for _ in $(seq 1 180); do
+			if ! port_free "$port"; then
+				surface=$(find_browser_surface "$ws")
+				[ -n "$surface" ] && cmux browser --surface "$surface" reload >/dev/null 2>&1
+				exit 0
+			fi
+			sleep 1
+		done
+	) >/dev/null 2>&1 &
+	disown 2>/dev/null || true
+
+	echo "Aufgabe $name: $ws, Branch $branch (von $base)${port:+, Port $port}"
+}
+
+cmd_done() {
+	local name=$1 repo=$2
+	local wt="$repo/.claude/worktrees/$name" branch="aufgabe/$name"
+	[ -d "$wt" ] || die "kein Worktree: $wt"
+	[ -z "$(git -C "$wt" status --porcelain --ignored=no)" ] || die "ungesicherte Änderungen in $wt, erst committen"
+	# grep -c instead of -q: with pipefail, -q would SIGPIPE lsof and fail the pipeline
+	if [ "$(lsof -nP -d cwd -Fn 2>/dev/null | grep -c "^n$wt")" -gt 0 ]; then
+		die "Prozesse laufen noch in $wt, erst den Workspace schließen"
+	fi
+
+	git -C "$repo" worktree remove --force "$wt"
+	if git -C "$repo" branch -d "$branch" >/dev/null 2>&1; then
+		echo "Worktree und Branch $branch entfernt."
+	else
+		echo "Worktree entfernt. Branch $branch bleibt, er ist nicht gemergt."
+	fi
+}
+
+[ $# -ge 1 ] || { usage; exit 1; }
+case $1 in -h | --help) usage; exit 0 ;; esac
+
+mode=new
+if [ "$1" = fertig ]; then mode=done; shift; fi
+name=${1:-}
+[ -n "$name" ] || die "Name fehlt"
+[[ $name =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "Name nur aus a-z, 0-9 und -"
+shift
+
+base="" repo_arg="$PWD" prompt="" description=""
+while [ $# -gt 0 ]; do
+	case $1 in
+	--von) base=$2; shift 2 ;;
+	--repo) repo_arg=$2; shift 2 ;;
+	--prompt) prompt=$2; shift 2 ;;
+	--beschreibung) description=$2; shift 2 ;;
+	*) die "unbekannte Option: $1" ;;
+	esac
+done
+
+repo=$(main_checkout "$repo_arg")
+if [ "$mode" = done ]; then
+	cmd_done "$name" "$repo"
+else
+	cmd_new "$name" "${base:-$(git -C "$repo" rev-parse --abbrev-ref HEAD)}" "$repo" "$prompt" "$description"
+fi

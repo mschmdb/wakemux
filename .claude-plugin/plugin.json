@@ -1,0 +1,6 @@
+{
+  "name": "threads",
+  "version": "0.2.0",
+  "description": "cmux threads: pane with status, merge and cleanup, plus automatic report-back from each thread to the main session",
+  "types": "./types/index.d.ts"
+}
