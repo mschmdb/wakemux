@@ -76,7 +76,15 @@ load helpers
 	log_contains "--group group:1 --group-placement end"
 }
 
+# Copied files must be ignored in the thread's branch, as .env usually is.
+ignore_in_repo() {
+	printf '%s\n' "$@" >"$REPO/.gitignore"
+	git -C "$REPO" add .gitignore
+	git -C "$REPO" -c user.name=t -c user.email=t@example.com commit -q -m ignore
+}
+
 @test "new copies the default .env and skips missing files" {
+	ignore_in_repo .env
 	echo SECRET=1 >"$REPO/.env"
 	run "$WAKEMUX" new copy --repo "$REPO"
 	[ "$status" -eq 0 ]
@@ -85,6 +93,7 @@ load helpers
 }
 
 @test "WAKEMUX_COPY_FILES chooses the copied files, also in subfolders" {
+	ignore_in_repo local.db config/dev.env
 	mkdir -p "$REPO/config"
 	echo a >"$REPO/local.db"
 	echo b >"$REPO/config/dev.env"
@@ -308,4 +317,17 @@ load helpers
 	grep -qxF "$(printf 'exclude\t%s\t.claude/worktrees/' "$REPO")" "$XDG_STATE_HOME/wakemux/manifest.tsv"
 	"$WAKEMUX" new rec2 --repo "$REPO"
 	[ "$(grep -c '^exclude' "$XDG_STATE_HOME/wakemux/manifest.tsv")" -eq 1 ]
+}
+
+@test "a copied file that the thread's branch does not ignore is skipped" {
+	echo SECRET=1 >"$REPO/.env"
+	echo ok >"$REPO/local.db"
+	echo 'local.db' >"$REPO/.gitignore"
+	git -C "$REPO" add .gitignore
+	git -C "$REPO" -c user.name=t -c user.email=t@example.com commit -q -m ignore
+	WAKEMUX_COPY_FILES=".env local.db" run "$WAKEMUX" new ignore-check --repo "$REPO"
+	[ "$status" -eq 0 ]
+	output_contains "skipped .env, the thread's branch does not ignore it"
+	[ ! -e "$REPO/.claude/worktrees/ignore-check/.env" ]
+	[ -f "$REPO/.claude/worktrees/ignore-check/local.db" ]
 }

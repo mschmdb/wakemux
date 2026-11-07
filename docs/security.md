@@ -18,7 +18,7 @@ When the main session starts a thread through the skill, the first prompt says: 
 
 ## Files copied into worktrees
 
-`wakemux new` copies the files listed in `copyFiles` (default `.env`) from the main checkout into each new worktree. Secrets in those files then exist in more places on disk. wakemux does not limit what Claude Code or a dev server later does with them. It also does not check that the thread's branch ignores them: if that branch's `.gitignore` differs, a commit in the thread could include them.
+`wakemux new` copies the files listed in `copyFiles` (default `.env`) from the main checkout into each new worktree. Secrets in those files then exist in more places on disk. wakemux does not limit what Claude Code or a dev server later does with them. It copies a file only if the thread's branch ignores it (`git check-ignore`), so a commit in the thread does not pick it up; otherwise it skips the file with a warning.
 
 The copy refuses to write through a symlink and never overwrites a file that already exists in the worktree, so a branch cannot redirect the copy outside the worktree.
 

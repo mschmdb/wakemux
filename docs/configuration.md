@@ -32,7 +32,7 @@ wakemux config unset maxThreads
 |---|---|---|---|
 | `worktreeDir` | `.claude/worktrees` | a relative path inside the repository | script, mod |
 | `branchPrefix` | `thread/` | a prefix that forms a valid branch name with the slug | script |
-| `copyFiles` | `[".env"]` | relative paths of files copied from the main checkout into each new worktree, usually git-ignored ones such as `.env` | script |
+| `copyFiles` | `[".env"]` | relative paths of files copied from the main checkout into each new worktree. wakemux copies a file only if the thread's branch ignores it | script |
 | `devLayout` | `auto` | `auto`: browser and dev server when the project has a `dev` script and uses pnpm, npm or bun. `off`: Claude only | script |
 | `devCommand` | derived | a shell command for the dev server; `{port}` is replaced with the free port | script |
 | `maxThreads` | `4` | 0 to 100 worktrees under `worktreeDir`; `wakemux new` refuses to add one more. `0` means no limit | script |

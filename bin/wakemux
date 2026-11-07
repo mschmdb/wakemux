@@ -283,6 +283,11 @@ cmd_new() {
 			echo "wakemux: warning: skipped $file, its path in the worktree contains a symlink" >&2
 			continue
 		fi
+		# A file the branch does not ignore could end up in a thread's commit.
+		if ! git -C "$wt" check-ignore -q -- "$file"; then
+			echo "wakemux: warning: skipped $file, the thread's branch does not ignore it" >&2
+			continue
+		fi
 		mkdir -p "$(dirname "$wt/$file")"
 		# cp -c clones on APFS: instant, no extra disk space until the copy changes
 		cp -c "$repo/$file" "$wt/$file" 2>/dev/null || cp "$repo/$file" "$wt/$file"
