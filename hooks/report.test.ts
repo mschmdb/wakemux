@@ -164,7 +164,7 @@ test('a parent without an agent is skipped for the main checkout session', async
 test('WAKEMUX_REPORT=0 sends nothing', async ($, on) => {
   const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered'), env: { WAKEMUX_REPORT: '0' } })
   await complete($, log, 'Done.')
-  expect(log.cmux).toEqual([])
+  expect(log.cmux.filter(call => call[0] !== 'set-status')).toEqual([])
 })
 
 test('the same report twice within a minute is sent once', async ($, on) => {
@@ -221,4 +221,26 @@ test('the same answer on a new commit is not a duplicate', async ($, on) => {
   world.head = 'amended'
   await complete($, log, 'Done.')
   expect(messages(log).length).toBe(2)
+})
+
+const pills = (log: Log) => log.cmux.filter(call => call[0] === 'set-status')
+
+test('each turn end sets the thread pill in the sidebar', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered') })
+  await complete($, log, 'Done.')
+  expect(pills(log)).toEqual([['set-status', 'wakemux', '+1 · clean', '--color', '#34C759', '--priority', '10']])
+})
+
+test('the pill updates also when reports are off', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', env: { WAKEMUX_REPORT: '0' } })
+  await complete($, log, 'Done.')
+  expect(pills(log).length).toBe(1)
+  expect(messages(log)).toEqual([])
+})
+
+test('the pill shows when reports pause', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered'), env: { WAKEMUX_MAX_HOPS: '1' } })
+  await complete($, log, 'One')
+  await complete($, log, 'Two')
+  expect(pills(log).at(-1)?.[2]).toBe('reports paused after 2 without a commit')
 })

@@ -99,9 +99,9 @@ Implemented in step 3 in `hooks/config.ts` (pure, tested in `hooks/config.test.t
 | `prRequiredOrgs` | empty | GitHub organization names | mod |
 | `mergePolicy` | `repo-rules` | `repo-rules`, `pr`, `merge` | not yet (skill) |
 | `scriptPath` | empty (bundled `bin/wakemux`) | absolute path; not settable from `.wakemux.json` | mod |
-| `maxThreads` | `4` | integer 0 to 100, `0` means unlimited | not yet (step 5) |
+| `maxThreads` | `4` | integer 0 to 100, `0` means unlimited | script (`wakemux new` refuses above it) |
 | `maxHops` | `6` | integer 0 to 100, `0` turns the limit off | mod |
-| `prStatus` | `true` | boolean | not yet (step 6) |
+| `prStatus` | `true` | boolean | skill (via `wakemux config prStatus`) |
 | `crossReview` | `off` | `off` or a command name (`a-z0-9-`) | not yet (skill) |
 
 Precedence, highest first:
@@ -177,6 +177,17 @@ Not needed for a Claude-only release. Recorded here because they are the path fo
 - Codex: hooks from `cmux hooks codex install` produce Stop events, but a Codex session started earlier reported `surface_id: null` (workspace id was set). The cmux docs say an idle Codex session cannot be woken, and sessions with hooks from `cmux hooks codex install` instead of the launch wrapper do not receive messages yet.
 - `~/.cmuxterm/automations.json` is global per user. An installer must merge into it, never overwrite it.
 
+## Sidebar status (step 6)
+
+Checked on 2026-11-07 with cmux 0.65.2:
+
+- `cmux set-status <key> <value> --color --priority` sets a pill on a workspace; `cmux list-status` read it back. A new `set-status` call replaces the whole entry, so every call passes all flags. Whether an `--icon` name renders was not checked visually, so wakemux sets none.
+- Used: each thread's mod sets the pill `wakemux` on its own workspace at every turn end (`hooks/status.ts`): `+3 · clean` green, `+1 · 2 uncommitted` orange, `no commits yet` grey, errors, refusals and paused reports red.
+- Not used: `cmux set-progress`. A thread has no measurable progress.
+- `cmux pr <url> --workspace <ref>` attaches a PR link that cmux keeps refreshing. The main session runs it after opening a PR when `prStatus` is true; the skill says so.
+- The pane stays: the sidebar has no buttons for hand-over and cleanup. It remains optional.
+- `wakemux config [<key>]` prints the settings the script resolves, for the skill and for troubleshooting.
+
 ## Installation design
 
 Two equal paths, documented with the same weight.
@@ -216,7 +227,7 @@ Estimated 4 to 6 working days in total. The estimate is not based on measurement
 3. **Configuration layer.** (Done.) Loader with the precedence above, unit tests for every source and for invalid values.
 4. **Script.** (Done.) Detect pnpm, npm and bun; `shellcheck` clean; bats tests for `new` and `done`.
 5. **Report-back hardening.** (Done in code, live tests open.) Delivery check, `SendMessage` fallback, desktop notification, hop limit, deduplication. Test with an idle main session, a busy one, and one without a poller.
-6. **Status in the cmux sidebar.** Evaluate `cmux set-status`, `cmux set-progress` and `cmux pr` as a replacement for, or addition to, the pane.
+6. **Status in the cmux sidebar.** (Done.) Evaluate `cmux set-status`, `cmux set-progress` and `cmux pr` as a replacement for, or addition to, the pane.
 7. **Install paths.** Marketplace and `install.sh`, tested on a fresh macOS user account.
 8. **Second machine.** Same behavior on the author's Mac mini (cmux version, hooks, `PATH`).
 9. **Repository with required PRs.** Run a full cycle against a protected branch.

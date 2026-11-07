@@ -17,6 +17,9 @@ Usage:
       --prompt       first prompt for the new Claude session
       --description  one line shown under the workspace name in the sidebar
 
+  wakemux config [<key>] [--repo <path>]
+      Prints the settings this script uses as key=value lines, or one value.
+
   wakemux done <name> [--repo <path>]
       Removes the worktree and its branch. Stops if there are uncommitted changes,
       if a process still runs in the worktree, or if a detached HEAD holds commits
@@ -30,6 +33,8 @@ Settings, highest precedence first: WAKEMUX_<KEY> environment variables,
   copyFiles     WAKEMUX_COPY_FILES      git-ignored files copied into each worktree, default .env
   devLayout     WAKEMUX_DEV_LAYOUT      auto or off, default auto
   devCommand    WAKEMUX_DEV_COMMAND     dev server command, {port} is replaced; default derived
+  maxThreads    WAKEMUX_MAX_THREADS     open threads allowed per repository, 0 = no limit; default 4
+  prStatus      WAKEMUX_PR_STATUS       attach a thread's PR to its sidebar entry; default true
 
 Environment:
   WAKEMUX_PREVIEW_TIMEOUT  seconds to wait for the dev server before giving up
@@ -103,11 +108,29 @@ SPEC = {
     "copyFiles": ("WAKEMUX_COPY_FILES", "list", lambda v: all(inside_path(p) for p in v), [".env"]),
     "devLayout": ("WAKEMUX_DEV_LAYOUT", "string", lambda v: v in ("auto", "off"), "auto"),
     "devCommand": ("WAKEMUX_DEV_COMMAND", "string", lambda v: True, ""),
+    "maxThreads": ("WAKEMUX_MAX_THREADS", "number", lambda v: 0 <= v <= 100, 4),
+    "prStatus": ("WAKEMUX_PR_STATUS", "boolean", lambda v: True, True),
 }
+
+TRUE, FALSE = {"1", "true", "yes", "on"}, {"0", "false", "no", "off"}
+
+def from_text(kind, text):
+    if kind == "list":
+        return re.split(r"[\s,]+", text.strip())
+    if kind == "number":
+        return int(text) if re.fullmatch(r"\s*-?\d+\s*", text) else text
+    if kind == "boolean":
+        lower = text.strip().lower()
+        return True if lower in TRUE else False if lower in FALSE else text
+    return text
 
 def has_kind(kind, value):
     if kind == "list":
         return isinstance(value, list) and all(isinstance(item, str) for item in value)
+    if kind == "number":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if kind == "boolean":
+        return isinstance(value, bool)
     return isinstance(value, str)
 
 repo_file = read_file(os.path.join(repo, ".wakemux.json"), ".wakemux.json")
@@ -118,7 +141,7 @@ for key, (env_name, kind, check, default) in SPEC.items():
     candidates = []
     env_text = os.environ.get(env_name, "")
     if env_text != "":
-        candidates.append((env_name, re.split(r"[\s,]+", env_text.strip()) if kind == "list" else env_text))
+        candidates.append((env_name, from_text(kind, env_text)))
     if key in repo_file:
         candidates.append((f".wakemux.json {key}", repo_file[key]))
     if key in user_file:
@@ -137,6 +160,8 @@ print(f"cfg_branch_prefix={shlex.quote(values['branchPrefix'])}")
 print("cfg_copy_files=(" + " ".join(shlex.quote(item) for item in values["copyFiles"]) + ")")
 print(f"cfg_dev_layout={shlex.quote(values['devLayout'])}")
 print(f"cfg_dev_command={shlex.quote(values['devCommand'])}")
+print(f"cfg_max_threads={values['maxThreads']}")
+print(f"cfg_pr_status={'true' if values['prStatus'] else 'false'}")
 PY
 }
 
@@ -280,25 +305,52 @@ path_has_symlink() {
 	return 1
 }
 
-rollback_wt="" rollback_branch="" rollback_repo=""
+rollback_wt="" rollback_branch="" rollback_repo="" lock_dir=""
 rollback() {
+	if [ -n "$lock_dir" ]; then rmdir "$lock_dir" 2>/dev/null || true; fi
 	[ -n "$rollback_wt" ] || return 0
 	echo "wakemux: failed, removing $rollback_wt" >&2
 	git -C "$rollback_repo" worktree remove --force "$rollback_wt" 2>/dev/null || true
 	git -C "$rollback_repo" branch -D "$rollback_branch" >/dev/null 2>&1 || true
 }
 
+# Parallel starts in one repository take turns, so the maxThreads count stays true.
+acquire_lock() {
+	local lock waited=0
+	lock="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir)/wakemux.lock"
+	until mkdir "$lock" 2>/dev/null; do
+		[ "$waited" -lt 300 ] || die "another wakemux new holds $lock for 30 s; if no wakemux runs, remove that folder"
+		sleep 0.1
+		waited=$((waited + 1))
+	done
+	lock_dir=$lock
+}
+
+release_lock() {
+	if [ -n "$lock_dir" ]; then rmdir "$lock_dir" 2>/dev/null || true; fi
+	lock_dir=""
+}
+
 cmd_new() {
 	local name=$1 base=$2 repo=$3 prompt=$4 description=$5
 	local wt="$repo/$cfg_worktree_dir/$name" branch="$cfg_branch_prefix$name"
 	git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "not a valid branch name: $branch"
+	trap rollback EXIT
+	acquire_lock "$repo"
 	[ -e "$wt" ] && die "worktree already exists: $wt"
+	if [ "$cfg_max_threads" -gt 0 ]; then
+		local open
+		open=$(git -C "$repo" worktree list --porcelain |
+			awk -v prefix="worktree $repo/$cfg_worktree_dir/" 'index($0, prefix) == 1 { n++ } END { print n + 0 }')
+		[ "$open" -lt "$cfg_max_threads" ] ||
+			die "$open threads are open (maxThreads $cfg_max_threads). Land or clean up one first, or raise maxThreads."
+	fi
 	ensure_excluded "$repo" "$cfg_worktree_dir"
 
 	git -C "$repo" worktree add -q -b "$branch" "$wt" "$base"
 	# Any failure from here on removes the worktree and the branch again.
 	rollback_wt=$wt rollback_branch=$branch rollback_repo=$repo
-	trap rollback EXIT
+	release_lock
 
 	# The wakemux mod reports back to the session that started the thread, even across repos.
 	# The parent's Claude Code session id (set by the wakemux mod) is the fallback channel.
@@ -402,16 +454,45 @@ cmd_done() {
 	fi
 }
 
+cmd_config() {
+	local key=$1
+	local -a lines=(
+		"worktreeDir=$cfg_worktree_dir"
+		"branchPrefix=$cfg_branch_prefix"
+		"copyFiles=${cfg_copy_files[*]+${cfg_copy_files[*]}}"
+		"devLayout=$cfg_dev_layout"
+		"devCommand=$cfg_dev_command"
+		"maxThreads=$cfg_max_threads"
+		"prStatus=$cfg_pr_status"
+	)
+	local line
+	for line in "${lines[@]}"; do
+		if [ -z "$key" ]; then
+			echo "$line"
+		elif [ "${line%%=*}" = "$key" ]; then
+			echo "${line#*=}"
+			return
+		fi
+	done
+	[ -z "$key" ] || die "unknown setting: $key"
+}
+
 [ $# -ge 1 ] || { usage; exit 1; }
 case $1 in -h | --help) usage; exit 0 ;; esac
 
 mode=$1
 shift
-case $mode in new | done) ;; *) die "unknown command: $mode" ;; esac
-name=${1:-}
-[ -n "$name" ] || die "name missing"
-[[ $name =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "name may only contain a-z, 0-9 and -"
-shift
+case $mode in new | done | config) ;; *) die "unknown command: $mode" ;; esac
+name=""
+if [ "$mode" = "config" ]; then
+	# An optional setting name instead of a thread name.
+	if [ $# -gt 0 ] && [[ $1 != --* ]]; then name=$1; shift; fi
+else
+	name=${1:-}
+	[ -n "$name" ] || die "name missing"
+	[[ $name =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "name may only contain a-z, 0-9 and -"
+	shift
+fi
 
 base="" repo_arg="$PWD" prompt="" description=""
 while [ $# -gt 0 ]; do
@@ -429,10 +510,12 @@ while [ $# -gt 0 ]; do
 done
 
 repo=$(main_checkout "$repo_arg")
-cfg_worktree_dir="" cfg_branch_prefix="" cfg_copy_files=() cfg_dev_layout="" cfg_dev_command=""
+cfg_worktree_dir="" cfg_branch_prefix="" cfg_copy_files=() cfg_dev_layout="" cfg_dev_command="" cfg_max_threads=0 cfg_pr_status=true
 config=$(load_config "$repo")
 eval "$config"
-if [ "$mode" = "done" ]; then
+if [ "$mode" = "config" ]; then
+	cmd_config "$name"
+elif [ "$mode" = "done" ]; then
 	cmd_done "$name" "$repo"
 else
 	cmd_new "$name" "${base:-$(git -C "$repo" rev-parse --abbrev-ref HEAD)}" "$repo" "$prompt" "$description"

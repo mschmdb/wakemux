@@ -9,6 +9,7 @@
 // 3. If that fails too, a desktop notification tells the user.
 //
 // Reports on the same commit count as hops; maxHops stops ping-pong between main and thread.
+// Every turn end also updates the thread's pill in the cmux sidebar.
 
 import { atom, read, update } from 'claude-code'
 
@@ -28,6 +29,8 @@ import {
   reportKey,
 } from './delivery'
 import type { Report } from './parse'
+import type { Pill } from './status'
+import { threadPill } from './status'
 import { parseCwd, parseParent, reportText, threadSlugOf, workspaceRefsByTitle } from './parse'
 
 const DELIVERY_CHECK_MS = 15_000
@@ -122,6 +125,11 @@ async function deliver($: Dollar, ctx: ThreadContext, text: string) {
   $.ui.log(`wakemux: report from ${ctx.slug} not delivered; sent a desktop notification.`, { to: 'debug' })
 }
 
+// Targets the thread's own workspace: cmux reads CMUX_WORKSPACE_ID from the environment.
+async function setPill($: Dollar, pill: Pill) {
+  await run($, ['cmux', 'set-status', 'wakemux', pill.value, '--color', pill.color, '--priority', '10'], undefined, { CMUX_QUIET: '1' })
+}
+
 type Decision = { action: HopAction; count: number }
 
 // Reports can end at the same time; the dedup and hop decisions run one after another so no
@@ -146,16 +154,19 @@ export async function sendReport($: Dollar, reason: Report['reason'], answer: st
   const ctx = await threadContext($)
   if (!ctx) return
   const { config } = await loadConfig($, ctx.main)
-  if (!config.report) return
 
   const base = (await git($, ctx.main, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const branch = (await git($, '.', 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const ahead = Number((await git($, '.', 'rev-list', '--count', `${base}..HEAD`)).stdout.trim()) || 0
   const report: Report = { slug: ctx.slug, branch, ahead, dirty: await dirtyCount($, '.', true), reason, answer }
   const head = (await git($, '.', 'rev-parse', 'HEAD')).stdout.trim()
+  const pill = { ahead: report.ahead, dirty: report.dirty, reason, pausedAfter: 0 }
+  if (!config.report) return setPill($, threadPill(pill))
 
   const decision = await decide($, report, head, config.maxHops)
   if (!decision) return
+  const paused = decision.action === 'notify' || decision.action === 'silent'
+  await setPill($, threadPill({ ...pill, pausedAfter: paused ? decision.count : 0 }))
   switch (decision.action) {
     case 'silent':
       return

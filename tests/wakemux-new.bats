@@ -269,3 +269,36 @@ load helpers
 	[ "$status" -eq 0 ]
 	[ ! -e "$(git -C "$REPO/.claude/worktrees/nosession" rev-parse --absolute-git-dir)/wakemux-parent-session" ]
 }
+
+@test "new refuses a thread beyond maxThreads" {
+	WAKEMUX_MAX_THREADS=2 "$WAKEMUX" new one --repo "$REPO"
+	WAKEMUX_MAX_THREADS=2 "$WAKEMUX" new two --repo "$REPO"
+	WAKEMUX_MAX_THREADS=2 run "$WAKEMUX" new three --repo "$REPO"
+	[ "$status" -eq 1 ]
+	output_contains "2 threads are open (maxThreads 2)"
+	[ ! -d "$REPO/.claude/worktrees/three" ]
+}
+
+@test "maxThreads 0 means no limit" {
+	echo '{"maxThreads": 0}' >"$REPO/.wakemux.json"
+	"$WAKEMUX" new one --repo "$REPO"
+	run "$WAKEMUX" new two --repo "$REPO"
+	[ "$status" -eq 0 ]
+}
+
+@test "maxThreads counts only worktrees in the thread folder" {
+	git -C "$REPO" worktree add -q -b elsewhere "$BATS_TEST_TMPDIR/elsewhere"
+	WAKEMUX_MAX_THREADS=1 run "$WAKEMUX" new only --repo "$REPO"
+	[ "$status" -eq 0 ]
+}
+
+@test "parallel starts do not exceed maxThreads" {
+	export WAKEMUX_MAX_THREADS=2
+	for name in p1 p2 p3 p4; do
+		("$WAKEMUX" new "$name" --repo "$REPO" >/dev/null 2>&1; echo $? >"$BATS_TEST_TMPDIR/status-$name") &
+	done
+	wait
+	[ "$(cat "$BATS_TEST_TMPDIR"/status-* | grep -c '^0$')" -eq 2 ]
+	[ "$(find "$REPO/.claude/worktrees" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -eq 2 ]
+	[ ! -e "$REPO/.git/wakemux.lock" ]
+}

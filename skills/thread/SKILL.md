@@ -18,7 +18,10 @@ A thread is its own workspace in the project's cmux workspace group. It has its 
    ```
    The description appears under the thread name in the sidebar: at most 6 words saying what the thread does, for example "Design system on remaining pages".
    Add `--from <branch>` if the user wants another base. The default is the current branch of the main checkout.
+   If it refuses because too many threads are open (setting `maxThreads`, default 4), tell the user which threads are open and ask which one to land or clean up first. Do not raise the limit yourself.
 5. Answer in one line: thread name, branch, port. Focus stays here; the user switches when cmux signals.
+
+Each thread shows its state as a pill in the cmux sidebar: commits ahead, uncommitted changes, errors, or paused reports.
 
 For several threads at once, run one command per task.
 
@@ -43,7 +46,7 @@ A report that ends with `[wakemux] N reports in a row without a new commit` mean
 1. **Read:** Is the thread done, does it ask something, or does it only report progress? Acknowledgements need no answer.
 2. **Answer yourself** what the issue, the repository rules (CLAUDE.md, AGENTS.md, memory) or an earlier decision of the user already settle. Reply to the thread with `SendMessage` to its session name (`ListAgents`, the name starts with the slug) or with `cmux agent message <workspace> "<text>"`.
 3. **Escalate to the user** anything about taste, new data or content decisions, cost, permissions, deploys or other people's PRs. Collect the questions and present them together. The affected thread waits; the others keep running.
-4. **Land finished threads** the way the repository's rules say: whether it uses PRs or local merges is in CLAUDE.md, AGENTS.md or memory, not in this skill. Check CI before merging (the exit code of `gh pr checks`, without a pipe). Then clean up the thread if the rules allow it.
+4. **Land finished threads** the way the repository's rules say: whether it uses PRs or local merges is in CLAUDE.md, AGENTS.md or memory, not in this skill. Check CI before merging (the exit code of `gh pr checks`, without a pipe). After you open a PR for a thread, run `cmux pr <url> --workspace <thread workspace ref>` in the main checkout if `wakemux config prStatus` prints `true`, so the thread's sidebar entry shows the PR status. Then clean up the thread if the rules allow it.
 5. **Start the next step** when the plan in the issue calls for it (for example the next wave as new threads). Do not let threads push or open PRs; the main session does that in the planned order.
 6. **Report briefly:** one or two sentences to the user per event. Put what is open and needs the user first.
 

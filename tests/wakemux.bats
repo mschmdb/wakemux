@@ -140,3 +140,35 @@ load helpers
 	output_contains "Removed worktree and branch task/conf"
 	[ ! -d "$REPO/trees/conf" ]
 }
+
+@test "config prints the resolved settings" {
+	echo '{"branchPrefix": "task/", "prStatus": false}' >"$REPO/.wakemux.json"
+	WAKEMUX_MAX_THREADS=7 run "$WAKEMUX" config --repo "$REPO"
+	[ "$status" -eq 0 ]
+	output_contains "branchPrefix=task/"
+	output_contains "maxThreads=7"
+	output_contains "prStatus=false"
+	output_contains "worktreeDir=.claude/worktrees"
+	output_contains "copyFiles=.env"
+}
+
+@test "config <key> prints one value" {
+	run "$WAKEMUX" config prStatus --repo "$REPO"
+	[ "$status" -eq 0 ]
+	[ "$output" = "true" ]
+}
+
+@test "config with an unknown key fails" {
+	run "$WAKEMUX" config nope --repo "$REPO"
+	[ "$status" -eq 1 ]
+	output_contains "unknown setting: nope"
+}
+
+@test "invalid maxThreads and prStatus values fall back with a warning" {
+	WAKEMUX_MAX_THREADS=-1 WAKEMUX_PR_STATUS=maybe run "$WAKEMUX" config --repo "$REPO"
+	[ "$status" -eq 0 ]
+	output_contains "WAKEMUX_MAX_THREADS: invalid value"
+	output_contains "WAKEMUX_PR_STATUS: invalid value"
+	output_contains "maxThreads=4"
+	output_contains "prStatus=true"
+}
