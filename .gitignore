@@ -5,3 +5,4 @@ node_modules/
 .claude/worktrees/
 *.log
 .claude-plugin/types/
+HANDOVER.md
