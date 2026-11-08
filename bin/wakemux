@@ -128,14 +128,27 @@ for g in groups:
 	done <<<"$refs"
 }
 
+# The group that holds the calling workspace, matched by its id (cmux lists ids in upper case).
+find_caller_group() {
+	cmux workspace-group list --json --id-format both | python3 -c '
+import json, sys
+caller = sys.argv[1].upper()
+try:
+    groups = json.load(sys.stdin).get("groups", [])
+except (ValueError, AttributeError):
+    groups = []
+for g in groups:
+    if caller in (i.upper() for i in g.get("member_workspace_ids") or []):
+        print(g.get("ref", "")); break' "$CMUX_WORKSPACE_ID" || true
+}
+
 # First thread in a project: a generated workspace becomes the group header,
 # the calling workspace moves below it as "main". The header hides its own
 # agent status, so the real checkout must not be the anchor. The group takes
 # the repository's folder name; a session title often names its first task instead.
 create_group_from_caller() {
-	local repo=$1 caller_cwd group
+	local repo=$1 caller_cwd=$2 group
 	[ -n "${CMUX_WORKSPACE_ID:-}" ] || return 0
-	caller_cwd=$(cmux sidebar-state --workspace "$CMUX_WORKSPACE_ID" | sed -n 's/^cwd=//p')
 	[ "$caller_cwd" = "$repo" ] || return 0
 	group=$(cmux workspace-group create --name "$(basename "$repo")" --cwd "$repo" | awk '{print $2}')
 	[ -n "$group" ] || return 0
@@ -298,15 +311,24 @@ cmd_new() {
 	done
 
 	# The worktree holds the base ref's package.json, which may differ from the main checkout's.
-	local dev port="" group ws
+	local dev port="" ws
 	dev=$(dev_command "$wt" "$cfg_dev_layout" "$cfg_dev_command")
 	if [ -n "$dev" ]; then
 		port=$(next_free_port)
 		dev=${dev//\{port\}/$port}
 	fi
-	group=$(find_group_for_repo "$repo")
+	# A session that orchestrates another repository keeps that repository's threads in its own group.
+	local caller_cwd="" group=""
+	if [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
+		caller_cwd=$(cmux sidebar-state --workspace "$CMUX_WORKSPACE_ID" | sed -n 's/^cwd=//p')
+		case $caller_cwd in
+		"$repo" | "$repo"/*) ;;
+		?*) group=$(find_caller_group) ;;
+		esac
+	fi
+	if [ -z "$group" ]; then group=$(find_group_for_repo "$repo"); fi
 	local group_args=()
-	if [ -z "$group" ]; then group=$(create_group_from_caller "$repo"); fi
+	if [ -z "$group" ]; then group=$(create_group_from_caller "$repo" "$caller_cwd"); fi
 	if [ -n "$group" ]; then
 		group_args=(--group "$group" --group-placement end)
 	else
