@@ -4,6 +4,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+### Fixed
+
+- `wakemux new` failed now and then with "Socket closed before reply" when `--prompt` held a few thousand characters. cmux drops large requests at random. The script now writes the prompt to `wakemux-prompt` in the worktree's Git folder, and the new terminal reads and deletes it.
+
 ## [0.3.0] - 2026-11-07
 
 First public version.
