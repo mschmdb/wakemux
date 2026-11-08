@@ -14,7 +14,7 @@ These are instructions to a model, not enforced limits. Claude Code's permission
 
 ## What threads must not do
 
-When the main session starts a thread through the skill, the first prompt says: commit on your branch, do not push, do not merge. `wakemux new` itself passes `--prompt` through as given and does not add or enforce these rules.
+When the main session starts a thread through the skill, the first prompt says: commit on your branch, do not push, do not merge. `wakemux new` itself passes `--prompt` through as given and does not add or enforce these rules. It hands the prompt over in a file in the worktree's Git folder, readable only by you, which the new terminal deletes after reading.
 
 ## Files copied into worktrees
 

@@ -11,7 +11,7 @@ load helpers
 	[ -d "$REPO/.claude/worktrees/feature-x" ]
 	[ "$(git -C "$REPO/.claude/worktrees/feature-x" branch --show-current)" = "thread/feature-x" ]
 	log_contains "new-workspace --name feature-x --description Does X --cwd $REPO/.claude/worktrees/feature-x"
-	layout_contains "claude 'Build X'"
+	layout_contains 'claude \"$(cat '
 }
 
 @test "new adds the worktree folder to info/exclude once, also when run from elsewhere" {
@@ -336,4 +336,40 @@ ignore_in_repo() {
 	git -C "$REPO" worktree add -q -b worktree-calm-puffin "$REPO/.claude/worktrees/calm-puffin"
 	WAKEMUX_MAX_THREADS=1 run "$WAKEMUX" new counted --repo "$REPO"
 	[ "$status" -eq 0 ]
+}
+
+# Runs the Claude command from the recorded layout with a stand-in claude that prints its arguments.
+run_claude_command() {
+	mkdir -p "$BATS_TEST_TMPDIR/fake"
+	printf '#!/usr/bin/env bash\nfor a in "$@"; do printf "[%%s]" "$a"; done\n' >"$BATS_TEST_TMPDIR/fake/claude"
+	chmod +x "$BATS_TEST_TMPDIR/fake/claude"
+	local command
+	command=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["pane"]["surfaces"][0]["command"])' "$CMUX_LOG.layout")
+	run env PATH="$BATS_TEST_TMPDIR/fake:$PATH" bash -c "$command"
+}
+
+@test "the prompt goes through a file, so the cmux request stays small" {
+	long=$(printf 'step %s. ' $(seq 1 600))
+	run "$WAKEMUX" new big --repo "$REPO" --prompt "$long"
+	[ "$status" -eq 0 ]
+	layout_lacks "step 600."
+	[ "$(wc -c <"$CMUX_LOG.layout")" -lt 600 ]
+	prompt_file="$REPO/.git/worktrees/big/wakemux-prompt"
+	[ "$(cat "$prompt_file")" = "$long" ]
+	[ "$(stat -f %Lp "$prompt_file")" = 600 ]
+}
+
+@test "the Claude command passes the prompt unchanged and removes the file" {
+	prompt=$'Fix it\'s "quoted" $HOME `x` ä\n\nsecond line'
+	"$WAKEMUX" new quoting --repo "$REPO" --prompt "$prompt"
+	run_claude_command
+	[ "$status" -eq 0 ]
+	[ "$output" = "[$prompt]" ]
+	[ ! -e "$REPO/.git/worktrees/quoting/wakemux-prompt" ]
+}
+
+@test "without a prompt Claude starts plain and no prompt file is written" {
+	"$WAKEMUX" new plain --repo "$REPO"
+	layout_contains '"command": "claude"'
+	[ ! -e "$REPO/.git/worktrees/plain/wakemux-prompt" ]
 }

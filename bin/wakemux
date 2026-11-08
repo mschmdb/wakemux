@@ -160,12 +160,17 @@ walk(json.load(sys.stdin))' "$1"
 }
 
 build_layout() {
-	WAKEMUX_PROMPT="$3" python3 - "$1" "$2" <<'PY'
-import json, os, shlex, sys
+	python3 - "$1" "$2" "$3" <<'PY'
+import json, shlex, sys
 
-port, dev = sys.argv[1], sys.argv[2]
-prompt = os.environ.get("WAKEMUX_PROMPT", "")
-claude = {"type": "terminal", "name": "Claude", "command": "claude " + shlex.quote(prompt) if prompt else "claude", "focus": True}
+port, dev, prompt_file = sys.argv[1], sys.argv[2], sys.argv[3]
+# The shell reads the prompt from the file and deletes it. A long prompt inside the layout makes
+# cmux drop the request now and then ("Socket closed before reply").
+command = "claude"
+if prompt_file:
+    path = shlex.quote(prompt_file)
+    command = f'claude "$(cat {path} && rm -f {path})"'
+claude = {"type": "terminal", "name": "Claude", "command": command, "focus": True}
 if not port:
     print(json.dumps({"pane": {"surfaces": [claude]}}, indent=1))
     sys.exit()
@@ -266,6 +271,11 @@ cmd_new() {
 	if [[ $session =~ ^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|session_[A-Za-z0-9]+)$ ]]; then
 		echo "$session" >"$git_dir/wakemux-parent-session"
 	fi
+	local prompt_file=""
+	if [ -n "$prompt" ]; then
+		prompt_file="$git_dir/wakemux-prompt"
+		(umask 077 && printf '%s' "$prompt" >"$prompt_file")
+	fi
 	local file
 	for file in ${cfg_copy_files[@]+"${cfg_copy_files[@]}"}; do
 		[ -e "$repo/$file" ] || continue
@@ -307,7 +317,7 @@ cmd_new() {
 	[ -n "$description" ] && description_args=(--description "$description")
 	# ${arr[@]+...}: macOS ships bash 3.2, where an empty array trips set -u
 	ws=$(CMUX_QUIET=1 cmux new-workspace --name "$name" ${description_args[@]+"${description_args[@]}"} --cwd "$wt" ${group_args[@]+"${group_args[@]}"} \
-		--focus false --layout "$(build_layout "$port" "$dev" "$prompt")" | awk '{print $2}')
+		--focus false --layout "$(build_layout "$port" "$dev" "$prompt_file")" | awk '{print $2}')
 	[ -n "$ws" ] || exit 1
 
 	rollback_wt=""
