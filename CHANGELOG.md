@@ -4,6 +4,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-08
+
 ### Fixed
 
 - `wakemux new` failed now and then with "Socket closed before reply" when `--prompt` held a few thousand characters. cmux drops large requests at random. The script now writes the prompt to `wakemux-prompt` in the worktree's Git folder, and the new terminal reads and deletes it.
@@ -37,5 +39,6 @@ First public version.
 - `.git/info/exclude` is found from any directory.
 - Copying never writes through a symlink, never overwrites a file in the worktree, and skips files the thread's branch does not ignore.
 
-[Unreleased]: https://github.com/mschmdb/wakemux/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mschmdb/wakemux/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/mschmdb/wakemux/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mschmdb/wakemux/releases/tag/v0.3.0
