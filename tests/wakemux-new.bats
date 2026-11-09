@@ -421,3 +421,20 @@ run_claude_command() {
 	layout_contains '"command": "claude"'
 	[ ! -e "$REPO/.git/worktrees/plain/wakemux-prompt" ]
 }
+
+@test "maxThreads counts a thread whose worktree switched to another branch" {
+	"$WAKEMUX" new switched --repo "$REPO"
+	git -C "$REPO/.claude/worktrees/switched" switch -q -c w-1141
+	WAKEMUX_MAX_THREADS=1 run "$WAKEMUX" new second --repo "$REPO"
+	[ "$status" -eq 1 ]
+	output_contains "1 threads are open (maxThreads 1)"
+}
+
+@test "maxThreads works with a branch prefix that does not end in a slash" {
+	export WAKEMUX_BRANCH_PREFIX=task-
+	"$WAKEMUX" new one --repo "$REPO"
+	git -C "$REPO/.claude/worktrees/one" switch -q -c elsewhere
+	WAKEMUX_MAX_THREADS=1 run "$WAKEMUX" new two --repo "$REPO"
+	[ "$status" -eq 1 ]
+	output_contains "1 threads are open (maxThreads 1)"
+}

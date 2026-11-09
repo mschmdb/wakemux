@@ -1,6 +1,7 @@
 // Pure parsers for git and cmux output, kept apart from the hooks so they can be tested alone.
 
-export type Worktree = { slug: string; path: string; branch: string }
+// branch is the thread's own branch, head the branch its worktree has checked out ('' when detached).
+export type Worktree = { slug: string; path: string; branch: string; head: string }
 
 // A thread is on a branch named branchPrefix + slug. Worktrees from `claude --worktree` share the
 // folder but use branches of their own, and are no threads.
@@ -8,8 +9,16 @@ export function isThreadBranch(branch: string, branchPrefix: string): boolean {
   return branch.startsWith(branchPrefix) && branch.length > branchPrefix.length
 }
 
-// worktreeDir and branchPrefix are the settings of the same names.
-export function parseWorktrees(porcelain: string, mainPath: string, worktreeDir: string, branchPrefix: string): Worktree[] {
+// worktreeDir and branchPrefix are the settings of the same names. threadBranches lists the
+// repository's branches under branchPrefix: a thread stays a thread when its worktree switches to
+// another branch, while a `claude --worktree` worktree in the same folder has no thread branch.
+export function parseWorktrees(
+  porcelain: string,
+  mainPath: string,
+  worktreeDir: string,
+  branchPrefix: string,
+  threadBranches: readonly string[] = [],
+): Worktree[] {
   const prefix = `${mainPath}/${worktreeDir}/`
   const result: Worktree[] = []
   for (const block of porcelain.split(/\n\s*\n/)) {
@@ -19,9 +28,11 @@ export function parseWorktrees(porcelain: string, mainPath: string, worktreeDir:
     const path = pathLine.slice('worktree '.length)
     if (!path.startsWith(prefix)) continue
     const branchLine = lines.find(line => line.startsWith('branch '))
-    const branch = branchLine ? branchLine.slice('branch refs/heads/'.length) : ''
-    if (!isThreadBranch(branch, branchPrefix)) continue
-    result.push({ slug: path.slice(prefix.length), path, branch })
+    const head = branchLine ? branchLine.slice('branch refs/heads/'.length) : ''
+    const slug = path.slice(prefix.length)
+    // The thread's own branch is what lands; HEAD only says where the session works right now.
+    if (threadBranches.includes(branchPrefix + slug)) result.push({ slug, path, branch: branchPrefix + slug, head })
+    else if (isThreadBranch(head, branchPrefix)) result.push({ slug, path, branch: head, head })
   }
   return result
 }
@@ -83,7 +94,7 @@ export function commits(count: number): string {
   return `${count} commit${count === 1 ? '' : 's'}`
 }
 
-type HandOverThread = { slug: string; branch: string; ahead: number; merge: 'clean' | 'conflict' | 'unknown' }
+type HandOverThread = { slug: string; branch: string; head: string; ahead: number; merge: 'clean' | 'conflict' | 'unknown' }
 
 // The pane's hand-over button submits this prompt. It says that the user pressed the button, so the
 // main session takes it as the user's request. How the thread lands is the repository's rule.
@@ -98,6 +109,9 @@ export function handOverPrompt(
   const facts = [
     `The user pressed "Hand over & clean up" in the wakemux pane. This prompt is their request to land thread ${thread.slug} and clean it up.`,
     `Branch ${thread.branch}, ${commits(thread.ahead)} ahead of ${base}.`,
+    thread.head !== thread.branch
+      ? `The worktree is checked out on ${thread.head || 'a detached HEAD'}, not on ${thread.branch}. Ask the user which branch to land.`
+      : '',
     thread.merge === 'conflict' ? 'Merging it into the base would conflict.' : '',
     repo.prRequired ? 'This repository requires PRs.' : '',
     "Land it the way this repository's rules say (CLAUDE.md, AGENTS.md, memory).",
@@ -122,6 +136,8 @@ export type Report = {
   dirty: number
   reason: 'answer' | 'aborted' | 'refusal' | 'error'
   answer: string
+  // The thread's own branch; the report says so when the session works on another one.
+  threadBranch?: string
 }
 
 // cmux agent messages are capped at 32 KiB of UTF-8. The setting reportMaxBytes overrides this.
@@ -149,7 +165,8 @@ function truncateUtf8(text: string, maxBytes: number): string {
 
 export function reportText(report: Report, maxBytes = DEFAULT_MAX_BYTES): string {
   const state = [
-    `Branch ${report.branch || '(no branch)'}`,
+    `Branch ${report.branch || '(no branch)'}` +
+      (report.threadBranch && report.branch !== report.threadBranch ? `, not its own ${report.threadBranch}` : ''),
     commits(report.ahead),
     report.dirty > 0 ? `${report.dirty} uncommitted` : 'clean',
   ].join(', ')

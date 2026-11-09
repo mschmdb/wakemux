@@ -259,10 +259,19 @@ cmd_new() {
 	if [ "$cfg_max_threads" -gt 0 ]; then
 		local open
 		# Threads only: worktrees from claude --worktree share the folder on branches of their own.
-		open=$(git -C "$repo" worktree list --porcelain |
-			awk -v prefix="worktree $repo/$cfg_worktree_dir/" -v branch="branch refs/heads/$cfg_branch_prefix" '
-				/^worktree / { inside = (index($0, prefix) == 1) }
-				/^branch / { if (inside && index($0, branch) == 1) n++ }
+		# A thread counts while its own branch exists, also when its worktree switched to another one.
+		open=$(
+			git -C "$repo" for-each-ref --format='own %(refname:lstrip=2)' refs/heads
+			git -C "$repo" worktree list --porcelain
+		) && open=$(printf '%s\n' "$open" |
+			awk -v prefix="worktree $repo/$cfg_worktree_dir/" -v branch="$cfg_branch_prefix" '
+				/^own / { own[substr($0, 5)] = 1; next }
+				/^worktree / {
+					if (index($0, prefix) == 1) {
+						slug = substr($0, length(prefix) + 1)
+						if ((branch slug) in own) n++
+					}
+				}
 				END { print n + 0 }')
 		[ "$open" -lt "$cfg_max_threads" ] ||
 			die "$open threads are open (maxThreads $cfg_max_threads). Land or clean up one first, or raise maxThreads."

@@ -3,6 +3,8 @@ export type MergeState = 'clean' | 'conflict' | 'unknown'
 export type ThreadRow = {
   slug: string
   branch: string
+  // The branch the worktree has checked out; differs from branch when the thread switched.
+  head: string
   path: string
   ahead: number
   behind: number

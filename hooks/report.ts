@@ -40,19 +40,29 @@ const DELIVERY_CHECK_MS = 15_000
 const hops = atom({ plugin: 'wakemux', key: 'hops' } as const, { head: '', count: 0 }, { shape: 'hops-1' })
 const lastReport = atom({ plugin: 'wakemux', key: 'lastReport' } as const, { key: '', at: 0 }, { shape: 'last-report-1' })
 
-type ThreadContext = { slug: string; main: string; gitDir: string }
-let context: ThreadContext | null | undefined
+type ThreadContext = { slug: string; main: string; gitDir: string; threadBranch: string }
+// Only a positive answer is kept: a session can become a thread later, a thread stays one.
+let context: ThreadContext | undefined
 let mainRef = ''
 
+// A thread is a worktree under worktreeDir that is on a thread branch or whose own thread branch
+// exists. The second case keeps a thread that switched branches; `claude --worktree` worktrees in
+// the same folder have neither.
 async function threadContext($: Dollar): Promise<ThreadContext | null> {
-  if (context !== undefined) return context
+  if (context) return context
   const main = await mainCheckout($)
   const top = (await git($, '.', 'rev-parse', '--show-toplevel')).stdout.trim()
   const { config } = await loadConfig($, main)
   const slug = threadSlugOf(top, main, config.worktreeDir)
+  if (!slug) return null
+  const threadBranch = config.branchPrefix + slug
   const branch = (await git($, '.', 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
+  const isThread =
+    isThreadBranch(branch, config.branchPrefix) ||
+    (await git($, '.', 'rev-parse', '--verify', '--quiet', `refs/heads/${threadBranch}`)).exitCode === 0
+  if (!isThread) return null
   const gitDir = (await git($, '.', 'rev-parse', '--absolute-git-dir')).stdout.trim()
-  context = slug && isThreadBranch(branch, config.branchPrefix) ? { slug, main, gitDir } : null
+  context = { slug, main, gitDir, threadBranch }
   return context
 }
 
@@ -174,7 +184,7 @@ export async function sendReport($: Dollar, reason: Report['reason'], answer: st
   const base = (await git($, ctx.main, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const branch = (await git($, '.', 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const ahead = Number((await git($, '.', 'rev-list', '--count', `${base}..HEAD`)).stdout.trim()) || 0
-  const report: Report = { slug: ctx.slug, branch, ahead, dirty: await dirtyCount($, '.', true), reason, answer }
+  const report: Report = { slug: ctx.slug, branch, threadBranch: ctx.threadBranch, ahead, dirty: await dirtyCount($, '.', true), reason, answer }
   const head = (await git($, '.', 'rev-parse', 'HEAD')).stdout.trim()
   const pill = { ahead: report.ahead, dirty: report.dirty, reason, pausedAfter: 0 }
   if (!config.report) return setPill($, threadPill(pill))

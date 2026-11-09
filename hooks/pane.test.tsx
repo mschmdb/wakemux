@@ -20,6 +20,7 @@ const PANE = {
 const THREAD: ThreadRow = {
   slug: 'og-images',
   branch: 'thread/og-images',
+  head: 'thread/og-images',
   path: '/r/.claude/worktrees/og-images',
   ahead: 3,
   behind: 0,
@@ -32,7 +33,7 @@ const THREAD: ThreadRow = {
 function stubState(on: On, threads: ThreadRow[], baseDirty = 0, warnings: string[] = []) {
   const snapshot: Snapshot = { repo: '/r', base: 'feature/x', prRequired: false, baseDirty, threads, updatedAt: 0, error: '', warnings }
   const stored: Record<string, unknown> = {
-    snapshot: { shape: 'snapshot-4', value: snapshot },
+    snapshot: { shape: 'snapshot-5', value: snapshot },
     confirm: { shape: 'confirm-1', value: '' },
     message: { shape: 'message-1', value: '' },
   }

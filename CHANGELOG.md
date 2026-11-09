@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 - A thread started for another repository joins the calling workspace's workspace group, so it sits next to the session it reports to. Before, it went to that repository's group or opened ungrouped.
 
+### Fixed
+
+- A thread whose worktree switched to another branch sent no report and lost its pill, for the rest of its session ([#7](https://github.com/mschmdb/wakemux/issues/7)). A worktree now counts as a thread while its branch `thread/<slug>` exists. The report names both branches, the pane keeps the thread and its hand-over asks which branch to land, and `maxThreads` counts it.
+
 ## [0.3.1] - 2026-11-08
 
 ### Fixed

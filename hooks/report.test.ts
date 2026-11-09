@@ -23,6 +23,8 @@ type World = {
   mainRef?: string
   now?: number
   sessionThrows?: boolean
+  threadHead?: string
+  ownBranch?: boolean
 }
 
 type Log = { cmux: string[][]; sessionSends: { to: unknown; text: string }[]; texts: string[]; calls: number; all: string[] }
@@ -40,7 +42,12 @@ function fakeWorld(on: On, world: World): Log {
       if (args === 'rev-parse --path-format=absolute --git-common-dir') return ok(`${MAIN}/.git\n`)
       if (args === 'rev-parse --show-toplevel') return ok(`${THREAD}\n`)
       if (args === 'rev-parse --absolute-git-dir') return ok(`${GIT_DIR}\n`)
-      if (args === 'rev-parse --abbrev-ref HEAD') return ok(argv[2] === MAIN ? 'main\n' : 'thread/x\n')
+      if (args === 'rev-parse --abbrev-ref HEAD') return ok(argv[2] === MAIN ? 'main\n' : `${world.threadHead ?? 'thread/x'}\n`)
+      if (args === 'rev-parse --verify --quiet refs/heads/thread/x') {
+        return world.ownBranch === false
+          ? { value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+          : ok('aaa\n')
+      }
       if (args === 'rev-parse HEAD') return ok(`${world.head ?? 'aaa'}\n`)
       if (args.startsWith('rev-list --count')) return ok('1\n')
       if (args.startsWith('status')) return ok('')
@@ -283,4 +290,29 @@ test('an idle parent with a queued message gets the fallback at once', async ($,
   })
   await complete($, log, 'Done.')
   expect(log.sessionSends.length).toBe(1)
+})
+
+test('a thread that switched to another branch still reports and names both branches', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered'), threadHead: 'w-1141' })
+  await complete($, log, 'Pushed the fixes.')
+  expect(messages(log)).toEqual(['workspace:3'])
+  expect(log.texts[0]).toContain('Branch w-1141, not its own thread/x')
+  expect(pills(log).length).toBe(1)
+})
+
+test('a worktree from claude --worktree in the same folder neither reports nor gets a pill', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered'), threadHead: 'worktree-x', ownBranch: false })
+  await complete($, log, 'Done.')
+  expect(log.cmux).toEqual([])
+})
+
+test('a session that is not a thread at first is checked again on the next turn', async ($, on) => {
+  const world: World = { parent: 'workspace:3', sendAnswer: () => sent('delivered'), threadHead: 'worktree-x', ownBranch: false }
+  const log = fakeWorld(on, world)
+  await complete($, log, 'First.')
+  expect(messages(log)).toEqual([])
+  world.threadHead = 'thread/x'
+  world.ownBranch = true
+  await complete($, log, 'Second.')
+  expect(messages(log)).toEqual(['workspace:3'])
 })

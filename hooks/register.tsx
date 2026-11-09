@@ -4,7 +4,7 @@ import type { Register } from 'claude-code'
 import type { Snapshot, ThreadRow } from '../types'
 import type { Dollar } from './engine'
 import { cmux, dirtyCount, git, isMainSession, loadConfig, mainCheckout, run, setPluginOptions } from './engine'
-import { handOverPrompt, isPrRequiredRemote, parseAgentStatus, parseCounts, parseCwd, parseWorktrees, workspaceRefsByTitle } from './parse'
+import { handOverPrompt, isPrRequiredRemote, isThreadBranch, parseAgentStatus, parseCounts, parseCwd, parseWorktrees, workspaceRefsByTitle } from './parse'
 import { publishSessionId, sendReport } from './report'
 
 const PANE = 'wakemux'
@@ -14,7 +14,7 @@ const REFRESH_MS = 10_000
 const EMPTY: Snapshot = { repo: '', base: '', prRequired: false, baseDirty: 0, threads: [], updatedAt: 0, error: '', warnings: [] }
 
 // Change a tag when the stored shape changes: an older value is then read as the initial one.
-const snapshot = atom({ plugin: 'wakemux', key: 'snapshot' } as const, EMPTY, { shape: 'snapshot-4' })
+const snapshot = atom({ plugin: 'wakemux', key: 'snapshot' } as const, EMPTY, { shape: 'snapshot-5' })
 const confirm = atom({ plugin: 'wakemux', key: 'confirm' } as const, '', { shape: 'confirm-1' })
 const message = atom({ plugin: 'wakemux', key: 'message' } as const, '', { shape: 'message-1' })
 
@@ -34,7 +34,17 @@ async function collect($: Dollar): Promise<Snapshot> {
   if (!repo) return { ...EMPTY, error: 'Not a git repository.' }
   const { config, warnings } = await loadConfig($, repo)
   const base = (await git($, repo, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
-  const worktrees = parseWorktrees((await git($, repo, 'worktree', 'list', '--porcelain')).stdout, repo, config.worktreeDir, config.branchPrefix)
+  // All branches, filtered here: for-each-ref patterns match whole path parts, so `task-` would miss `task-x`.
+  const threadBranches = (await git($, repo, 'for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads')).stdout
+    .split('\n')
+    .filter(name => isThreadBranch(name, config.branchPrefix))
+  const worktrees = parseWorktrees(
+    (await git($, repo, 'worktree', 'list', '--porcelain')).stdout,
+    repo,
+    config.worktreeDir,
+    config.branchPrefix,
+    threadBranches,
+  )
   const refs = workspaceRefsByTitle((await cmux($, 'tree', '--all', '--json')).stdout)
 
   const threads: ThreadRow[] = []
@@ -217,7 +227,7 @@ export const register: Register = (on, options) => {
                 <Text bold>{thread.slug}</Text> · {thread.agent || (thread.workspaceRef ? 'no agent' : 'workspace closed')}
               </Text>
               <Text dimColor>
-                {thread.branch || '(no branch)'} · +{thread.ahead} / −{thread.behind}
+                {thread.branch}{thread.head !== thread.branch ? ` (worktree on ${thread.head || 'detached HEAD'})` : ''} · +{thread.ahead} / −{thread.behind}
                 {thread.dirty > 0 ? ` · ${thread.dirty} uncommitted` : ' · clean'} · {mergeLabel}
               </Text>
               <Box flexDirection="row" gap={1}>
