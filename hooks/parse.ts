@@ -76,6 +76,34 @@ export function workspaceRefsByTitle(treeJson: string): Map<string, string[]> {
   return refs
 }
 
+// The ref of the workspace with this id (CMUX_WORKSPACE_ID); cmux prints ids in upper case.
+export function workspaceRefOfId(treeJson: string, id: string): string {
+  if (!id) return ''
+  let tree: unknown
+  try {
+    tree = JSON.parse(treeJson)
+  } catch {
+    return ''
+  }
+  const wanted = id.toUpperCase()
+  const walk = (node: unknown): string => {
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        const found = walk(child)
+        if (found) return found
+      }
+      return ''
+    }
+    if (node === null || typeof node !== 'object') return ''
+    const record = node as Record<string, unknown>
+    if (typeof record.ref === 'string' && record.ref.startsWith('workspace:') && typeof record.id === 'string' && record.id.toUpperCase() === wanted) {
+      return record.ref
+    }
+    return walk(Object.values(record))
+  }
+  return walk(tree)
+}
+
 export function parseCwd(sidebarState: string): string {
   const line = sidebarState.split('\n').find(row => row.startsWith('cwd='))
   return line ? line.slice('cwd='.length).trim() : ''

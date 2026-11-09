@@ -12,6 +12,7 @@ import {
   parseCounts,
   parseWorktrees,
   workspaceRefsByTitle,
+  workspaceRefOfId,
 } from './parse'
 
 const MAIN = '/Users/m/Sites/app'
@@ -265,4 +266,12 @@ test('parseWorktrees prefers the thread\'s own branch over another thread branch
   expect(parseWorktrees(porcelain, MAIN, DIR, 'thread/', ['thread/x', 'thread/y'])).toEqual([
     { slug: 'x', path: `${MAIN}/.claude/worktrees/x`, branch: 'thread/x', head: 'thread/y' },
   ])
+})
+
+test('workspaceRefOfId finds a workspace ref by its id, ignoring case', () => {
+  const tree = JSON.stringify({ windows: [{ workspaces: [{ ref: 'workspace:7', id: 'ABC-1', title: 'main' }] }] })
+  expect(workspaceRefOfId(tree, 'abc-1')).toBe('workspace:7')
+  expect(workspaceRefOfId(tree, 'other')).toBe('')
+  expect(workspaceRefOfId('not json', 'abc-1')).toBe('')
+  expect(workspaceRefOfId(tree, '')).toBe('')
 })
