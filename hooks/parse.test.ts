@@ -44,6 +44,7 @@ test('parseWorktrees keeps only thread branches under .claude/worktrees', () => 
       slug: 'og-images',
       path: `${MAIN}/.claude/worktrees/og-images`,
       branch: 'thread/og-images',
+      head: 'thread/og-images',
     },
   ])
 })
@@ -96,7 +97,7 @@ test('parseCwd reads the workspace directory of sidebar-state', () => {
 })
 
 test('handOverPrompt names thread, branch and base and points to the repo rules', () => {
-  const thread = { slug: 'og-images', branch: 'thread/og-images', ahead: 3, merge: 'clean' as const }
+  const thread = { slug: 'og-images', branch: 'thread/og-images', head: 'thread/og-images', ahead: 3, merge: 'clean' as const }
 
   const own = handOverPrompt(thread, 'feature/x', { prRequired: false, hasRemote: true })
   expect(own).toContain('The user pressed "Hand over & clean up"')
@@ -212,7 +213,7 @@ test('reportText keeps the whole message within the byte limit it is given', () 
 
 test('a configured worktree folder replaces .claude/worktrees', () => {
   const porcelain = [`worktree ${MAIN}`, 'HEAD 1', 'branch refs/heads/main', '', `worktree ${MAIN}/trees/x`, 'HEAD 2', 'branch refs/heads/task/x', '', `worktree ${MAIN}/.claude/worktrees/y`, 'HEAD 3', 'branch refs/heads/thread/y', ''].join('\n')
-  expect(parseWorktrees(porcelain, MAIN, 'trees', 'task/')).toEqual([{ slug: 'x', path: `${MAIN}/trees/x`, branch: 'task/x' }])
+  expect(parseWorktrees(porcelain, MAIN, 'trees', 'task/')).toEqual([{ slug: 'x', path: `${MAIN}/trees/x`, branch: 'task/x', head: 'task/x' }])
   expect(threadSlugOf(`${MAIN}/trees/x/src`, MAIN, 'trees')).toBe('x')
   expect(threadSlugOf(`${MAIN}/treesx/y`, MAIN, 'trees')).toBe('')
   expect(threadSlugOf(`${MAIN}/.claude/worktrees/y`, MAIN, 'trees')).toBe('')
@@ -224,4 +225,44 @@ test('isThreadBranch requires the configured prefix', () => {
   expect(isThreadBranch('thread/', 'thread/')).toBe(false)
   expect(isThreadBranch('HEAD', 'thread/')).toBe(false)
   expect(isThreadBranch('', 'thread/')).toBe(false)
+})
+
+test('parseWorktrees keeps a thread whose worktree switched branch while its own branch exists', () => {
+  const porcelain = [
+    `worktree ${MAIN}/.claude/worktrees/fixes`,
+    'HEAD 1111',
+    'branch refs/heads/w-1141',
+    '',
+    `worktree ${MAIN}/.claude/worktrees/gone`,
+    'HEAD 2222',
+    'detached',
+    '',
+    `worktree ${MAIN}/.claude/worktrees/calm-puffin`,
+    'HEAD 3333',
+    'branch refs/heads/worktree-calm-puffin',
+  ].join('\n')
+  expect(parseWorktrees(porcelain, MAIN, DIR, 'thread/', ['thread/fixes', 'thread/gone'])).toEqual([
+    { slug: 'fixes', path: `${MAIN}/.claude/worktrees/fixes`, branch: 'thread/fixes', head: 'w-1141' },
+    { slug: 'gone', path: `${MAIN}/.claude/worktrees/gone`, branch: 'thread/gone', head: '' },
+  ])
+})
+
+test('reportText says when the thread is not on its own branch', () => {
+  const report = { slug: 'x', branch: 'w-1141', ahead: 4, dirty: 0, reason: 'answer' as const, answer: 'Done.' }
+  expect(reportText({ ...report, threadBranch: 'thread/x' })).toContain('Branch w-1141, not its own thread/x, 4 commits,')
+  expect(reportText({ ...report, branch: 'thread/x', threadBranch: 'thread/x' })).toContain('Branch thread/x, 4 commits,')
+})
+
+test('handOverPrompt warns when the worktree sits on another branch', () => {
+  const thread = { slug: 'fixes', branch: 'thread/fixes', head: 'w-1141', ahead: 0, merge: 'clean' as const }
+  const text = handOverPrompt(thread, 'main', { prRequired: false, hasRemote: true })
+  expect(text).toContain('The worktree is checked out on w-1141, not on thread/fixes. Ask the user which branch to land.')
+  expect(handOverPrompt({ ...thread, head: 'thread/fixes' }, 'main', { prRequired: false, hasRemote: true })).not.toContain('checked out on')
+})
+
+test('parseWorktrees prefers the thread\'s own branch over another thread branch it switched to', () => {
+  const porcelain = [`worktree ${MAIN}/.claude/worktrees/x`, 'HEAD 1111', 'branch refs/heads/thread/y'].join('\n')
+  expect(parseWorktrees(porcelain, MAIN, DIR, 'thread/', ['thread/x', 'thread/y'])).toEqual([
+    { slug: 'x', path: `${MAIN}/.claude/worktrees/x`, branch: 'thread/x', head: 'thread/y' },
+  ])
 })
