@@ -1,6 +1,6 @@
 {
   "name": "wakemux",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Run side tasks as Claude Code threads in cmux worktrees; each thread reports back to the main session and wakes it",
   "author": {
     "name": "Matze Schmidbauer",

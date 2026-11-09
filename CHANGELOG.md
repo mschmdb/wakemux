@@ -4,6 +4,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-09
+
 ### Fixed
 
 - A main session that worked inside a thread's worktree started to send that thread's reports to itself, after every turn, until the hop limit ([#10](https://github.com/mschmdb/wakemux/issues/10)). A session now counts as a thread only if it started in the worktree, decided on every turn. A thread reads its state from its worktree even after its shell moved elsewhere, and a session never reports to itself.
@@ -53,7 +55,8 @@ First public version.
 - `.git/info/exclude` is found from any directory.
 - Copying never writes through a symlink, never overwrites a file in the worktree, and skips files the thread's branch does not ignore.
 
-[Unreleased]: https://github.com/mschmdb/wakemux/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/mschmdb/wakemux/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/mschmdb/wakemux/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/mschmdb/wakemux/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/mschmdb/wakemux/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mschmdb/wakemux/releases/tag/v0.3.0
