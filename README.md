@@ -2,7 +2,7 @@
 
 Run side tasks as separate Claude Code sessions in [cmux](https://cmux.dev), each in its own git worktree. When a thread finishes a turn, it reports back to your main session and wakes it up. You watch one session instead of five.
 
-**Status:** 0.3.1. Tested on the author's Mac with cmux 0.65.2 and Claude Code 2.1.319.
+**Status:** 0.3.2. Tested on the author's Mac with cmux 0.65.2 and Claude Code 2.1.319.
 
 **Maintenance:** I build wakemux for my own work and fix what breaks for me. Issues and PRs are welcome, but I make no promises about response times or new features.
 
