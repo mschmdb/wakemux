@@ -30,6 +30,8 @@ Threads commit on their own branch. They do not push, open PRs or merge: the ski
 
 The session you started the thread from, usually the one in the main checkout. In cmux the first thread turns the calling workspace into `main` below a new workspace group for the project. The group header is a separate workspace, because cmux does not show the agent status of a group's header.
 
+A session can also start threads for another repository, for example a notes repository that orchestrates work in a project. Those threads join the calling workspace's group, next to the session they report to. If the calling workspace has no group, they go to the project's group, or open ungrouped when the project has none.
+
 ## Report-back
 
 When a thread's main loop finishes a turn, the wakemux mod in that thread sends a report: the slug, the branch, commits ahead of the base, the number of uncommitted changes, and the thread's last answer. It goes to the session that started the thread, or else to the main checkout's session.

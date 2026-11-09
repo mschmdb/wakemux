@@ -4,6 +4,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+### Changed
+
+- A thread started for another repository joins the calling workspace's workspace group, so it sits next to the session it reports to. Before, it went to that repository's group or opened ungrouped.
+
 ## [0.3.1] - 2026-11-08
 
 ### Fixed

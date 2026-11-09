@@ -76,6 +76,54 @@ load helpers
 	log_contains "--group group:1 --group-placement end"
 }
 
+# A group whose anchor sits in $REPO, and the hub group that holds the calling workspace.
+groups_json() {
+	cat <<EOF
+{"groups": [
+ {"ref": "group:repo", "anchor_workspace_ref": "workspace:1", "member_workspace_ids": ["A1"]},
+ {"ref": "group:hub", "anchor_workspace_ref": "workspace:2", "member_workspace_ids": ["A2", "${1:-caller}"]}
+]}
+EOF
+}
+
+@test "a thread for another repo joins the calling workspace's group" {
+	CMUX_WORKSPACE_ID=caller STUB_CALLER_CWD=/hub STUB_CWD=/elsewhere CMUX_GROUPS=$(groups_json) \
+		run "$WAKEMUX" new remote --repo "$REPO"
+	[ "$status" -eq 0 ]
+	log_contains "--group group:hub --group-placement end"
+	run grep -c "workspace-group create\|workspace-action" "$CMUX_LOG"
+	[ "$output" = 0 ]
+}
+
+@test "the calling workspace's group wins over the repo's own group" {
+	CMUX_WORKSPACE_ID=caller STUB_CALLER_CWD=/hub STUB_CWD="$REPO" CMUX_GROUPS=$(groups_json) \
+		run "$WAKEMUX" new remote --repo "$REPO"
+	[ "$status" -eq 0 ]
+	log_contains "--group group:hub --group-placement end"
+}
+
+@test "group ids match the calling workspace without regard to case" {
+	CMUX_WORKSPACE_ID=abc-def STUB_CWD=/hub CMUX_GROUPS=$(groups_json ABC-DEF) \
+		run "$WAKEMUX" new remote --repo "$REPO"
+	[ "$status" -eq 0 ]
+	log_contains "--group group:hub --group-placement end"
+}
+
+@test "a session in the repo itself still uses the repo's group" {
+	CMUX_WORKSPACE_ID=caller STUB_CALLER_CWD="$REPO/src" STUB_CWD="$REPO" CMUX_GROUPS=$(groups_json) \
+		run "$WAKEMUX" new local --repo "$REPO"
+	[ "$status" -eq 0 ]
+	log_contains "--group group:repo --group-placement end"
+}
+
+@test "a thread for another repo from an ungrouped session opens ungrouped" {
+	CMUX_WORKSPACE_ID=caller STUB_CALLER_CWD=/hub STUB_CWD=/elsewhere run "$WAKEMUX" new remote --repo "$REPO"
+	[ "$status" -eq 0 ]
+	output_contains "no workspace group"
+	run grep -c "workspace-group create" "$CMUX_LOG"
+	[ "$output" = 0 ]
+}
+
 # Copied files must be ignored in the thread's branch, as .env usually is.
 ignore_in_repo() {
 	printf '%s\n' "$@" >"$REPO/.gitignore"

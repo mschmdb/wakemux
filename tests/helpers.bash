@@ -31,7 +31,10 @@ done
 case "$1 ${2:-}" in
 "workspace-group list") echo "${CMUX_GROUPS:-{\"groups\": []\}}" ;;
 "workspace-group create") echo "OK group:1" ;;
-"sidebar-state "*) echo "cwd=${STUB_CWD:-/nowhere}" ;;
+"sidebar-state "*)
+	# The calling workspace may sit in another folder than the group anchors.
+	if [ "${3:-}" = caller ] && [ -n "${STUB_CALLER_CWD:-}" ]; then echo "cwd=$STUB_CALLER_CWD"; else echo "cwd=${STUB_CWD:-/nowhere}"; fi
+	;;
 "tree --all") echo '{"windows": [{"workspaces": [{"id": "caller", "title": "app"}]}]}' ;;
 "new-workspace "*)
 	[ -n "${CMUX_FAIL_NEW:-}" ] && exit 1
