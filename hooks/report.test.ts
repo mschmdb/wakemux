@@ -375,3 +375,9 @@ test('the main-checkout fallback skips the thread\'s own workspace', async ($, o
   await complete($, log, 'Done.')
   expect(messages(log)).toEqual(['workspace:3'])
 })
+
+test('a parent stored as a workspace ref still counts as the sender\'s own workspace', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:5', ownWorkspace: 'own-id', mainRef: 'workspace:5', mainId: 'OWN-ID', sendAnswer: () => sent('delivered') })
+  await complete($, log, 'Echo.')
+  expect(messages(log)).toEqual([])
+})

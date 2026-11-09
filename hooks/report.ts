@@ -72,6 +72,10 @@ async function isOwnParent($: Dollar, gitDir: string): Promise<boolean> {
   const workspace = (await $.env.get('CMUX_WORKSPACE_ID')) ?? ''
   const parent = parseParent(await readNote($, `${gitDir}/wakemux-parent`))
   if (workspace && parent.toUpperCase() === workspace.toUpperCase()) return true
+  // wakemux new stores the id; a parent written as a ref is compared through the workspace tree.
+  if (workspace && parent.startsWith('workspace:')) {
+    if (workspaceRefOfId((await cmux($, 'tree', '--all', '--json')).stdout, workspace) === parent) return true
+  }
   const session = await $.session.id()
   const parentSession = parseSessionId(await readNote($, `${gitDir}/wakemux-parent-session`))
   return session !== '' && parentSession === session
