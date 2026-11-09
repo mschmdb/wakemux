@@ -30,8 +30,8 @@ export function cmux($: Dollar, ...args: string[]) {
   return run($, ['cmux', ...args], undefined, { CMUX_QUIET: '1' })
 }
 
-export async function mainCheckout($: Dollar): Promise<string> {
-  const common = await git($, '.', 'rev-parse', '--path-format=absolute', '--git-common-dir')
+export async function mainCheckout($: Dollar, dir = '.'): Promise<string> {
+  const common = await git($, dir, 'rev-parse', '--path-format=absolute', '--git-common-dir')
   if (common.exitCode !== 0) return ''
   return common.stdout.trim().replace(/\/\.git\/?$/, '')
 }

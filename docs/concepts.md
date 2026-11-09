@@ -26,7 +26,7 @@ Projects with a `dev` script and pnpm, npm or bun also get a browser and the dev
 
 Threads commit on their own branch. They do not push, open PRs or merge: the skill tells the main session to put these rules in each thread's first prompt. The script does not enforce them.
 
-A worktree in that folder counts as a thread while its branch `thread/<slug>` exists, even if the session switched to another branch, for example to fix a PR. Reports then name both branches, and the pane's hand-over asks which one to land. Worktrees from `claude --worktree` in the same folder have no thread branch and stay out.
+A session reports as a thread only if it started in the thread's worktree. Another session that `cd`s into the worktree, such as the main session reviewing it, does not. A worktree counts while its branch `thread/<slug>` exists, even if the session switched to another branch, for example to fix a PR. Reports then name both branches, and the pane's hand-over asks which one to land. Worktrees from `claude --worktree` in the same folder have no thread branch and stay out.
 
 ## Main session
 

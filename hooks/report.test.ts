@@ -21,10 +21,16 @@ type World = {
   env?: Record<string, string>
   head?: string
   mainRef?: string
+  mainId?: string
   now?: number
   sessionThrows?: boolean
   threadHead?: string
   ownBranch?: boolean
+  // The folder the session started in ($.session.root), and the shell's folder, which cd moves.
+  root?: string
+  cwdTop?: string
+  ownWorkspace?: string
+  sessionId?: string
 }
 
 type Log = { cmux: string[][]; sessionSends: { to: unknown; text: string }[]; texts: string[]; calls: number; all: string[] }
@@ -40,7 +46,7 @@ function fakeWorld(on: On, world: World): Log {
     if (argv[0] === 'git') {
       const args = argv.slice(3).join(' ')
       if (args === 'rev-parse --path-format=absolute --git-common-dir') return ok(`${MAIN}/.git\n`)
-      if (args === 'rev-parse --show-toplevel') return ok(`${THREAD}\n`)
+      if (args === 'rev-parse --show-toplevel') return ok(`${argv[2] === '.' ? (world.cwdTop ?? THREAD) : argv[2]}\n`)
       if (args === 'rev-parse --absolute-git-dir') return ok(`${GIT_DIR}\n`)
       if (args === 'rev-parse --abbrev-ref HEAD') return ok(argv[2] === MAIN ? 'main\n' : `${world.threadHead ?? 'thread/x'}\n`)
       if (args === 'rev-parse --verify --quiet refs/heads/thread/x') {
@@ -71,7 +77,7 @@ function fakeWorld(on: On, world: World): Log {
         const state = world.inboxStates?.shift() ?? world.inboxState ?? 'queued'
         return ok(JSON.stringify({ messages: [{ id: 'm1', state }] }))
       }
-      if (argv[1] === 'tree') return ok(world.mainRef ? JSON.stringify({ ref: world.mainRef, title: 'main' }) : '{}')
+      if (argv[1] === 'tree') return ok(world.mainRef ? JSON.stringify({ ref: world.mainRef, id: world.mainId ?? 'MAIN-ID', title: 'main' }) : '{}')
       if (argv[1] === 'sidebar-state') {
         // The parent's agent status for the delivery check; the main checkout's cwd for findMainRef.
         return ok(argv[3] === 'workspace:3' ? `cwd=/elsewhere\n  claude_code=${world.parentStatus ?? 'Idle'} icon=x\n` : `cwd=${MAIN}\n`)
@@ -80,11 +86,15 @@ function fakeWorld(on: On, world: World): Log {
     }
     return { value: { exitCode: 127, stdout: '', stderr: 'unexpected', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('env.get', (_, e) => ({ value: world.env?.[e.name] }))
+  on('env.get', (_, e) => {
+    if (e.name === 'CMUX_WORKSPACE_ID') return { value: world.ownWorkspace }
+    return { value: world.env?.[e.name] }
+  })
   on('fs.exists', () => ({ value: false }))
   on('clock.sleep', () => ({ value: undefined }))
   on('clock.now', () => ({ value: world.now ?? 1_000_000 }))
-  on('session.id', () => ({ value: 'thread-session' }))
+  on('session.id', () => ({ value: world.sessionId ?? 'thread-session' }))
+  on('session.root', () => ({ value: world.root ?? THREAD }))
   on('env.set', () => ({ value: {} }))
   on('turn.complete', () => ({ text: '' }))
   on('session.send', (_, e) => {
@@ -314,5 +324,54 @@ test('a session that is not a thread at first is checked again on the next turn'
   world.threadHead = 'thread/x'
   world.ownBranch = true
   await complete($, log, 'Second.')
+  expect(messages(log)).toEqual(['workspace:3'])
+})
+
+test('a main session that cds into a thread worktree sends no report', async ($, on) => {
+  const log = fakeWorld(on, { root: MAIN, cwdTop: THREAD, parent: 'workspace:3', sendAnswer: () => sent('delivered') })
+  await complete($, log, 'Reviewed the thread.')
+  expect(log.cmux).toEqual([])
+})
+
+test('a session that started in the worktree but is the thread\'s parent workspace sends nothing', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', ownWorkspace: 'workspace:3', sendAnswer: () => sent('delivered') })
+  await complete($, log, 'Echo.')
+  expect(log.cmux).toEqual([])
+})
+
+test('a session that is the thread\'s parent session sends nothing', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', session: SESSION, sessionId: SESSION, sendAnswer: () => sent('delivered') })
+  await complete($, log, 'Echo.')
+  expect(log.cmux).toEqual([])
+  expect(log.sessionSends).toEqual([])
+})
+
+test('a session that moves its root out of the worktree stops reporting', async ($, on) => {
+  const world: World = { parent: 'workspace:3', sendAnswer: () => sent('delivered') }
+  const log = fakeWorld(on, world)
+  await complete($, log, 'In the worktree.')
+  expect(messages(log)).toEqual(['workspace:3'])
+  world.root = MAIN
+  await complete($, log, 'Moved with /cd.')
+  expect(messages(log)).toEqual(['workspace:3'])
+})
+
+test('a thread reads its state from its worktree, wherever its shell moved', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', cwdTop: '/tmp', sendAnswer: () => sent('delivered') })
+  await complete($, log, 'Done.')
+  expect(messages(log)).toEqual(['workspace:3'])
+  expect(log.all).toContain(`git -C ${THREAD} rev-parse HEAD`)
+  expect(log.all.some(call => call.startsWith('git -C . '))).toBe(false)
+})
+
+test('the main-checkout fallback skips the thread\'s own workspace', async ($, on) => {
+  const log = fakeWorld(on, {
+    parent: 'workspace:3',
+    ownWorkspace: 'own-id',
+    mainRef: 'workspace:5',
+    mainId: 'OWN-ID',
+    sendAnswer: target => (target === 'workspace:3' ? sent('queued', false) : sent('delivered')),
+  })
+  await complete($, log, 'Done.')
   expect(messages(log)).toEqual(['workspace:3'])
 })

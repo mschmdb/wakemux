@@ -4,6 +4,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+### Fixed
+
+- A main session that worked inside a thread's worktree started to send that thread's reports to itself, after every turn, until the hop limit ([#10](https://github.com/mschmdb/wakemux/issues/10)). A session now counts as a thread only if it started in the worktree, decided on every turn. A thread reads its state from its worktree even after its shell moved elsewhere, and a session never reports to itself.
+
 ## [0.3.2] - 2026-11-09
 
 ### Changed

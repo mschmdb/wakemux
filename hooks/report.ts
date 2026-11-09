@@ -33,37 +33,48 @@ import {
 import type { Report } from './parse'
 import type { Pill } from './status'
 import { threadPill } from './status'
-import { isThreadBranch, parseAgentStatus, parseCwd, parseParent, reportText, threadSlugOf, workspaceRefsByTitle } from './parse'
+import { isThreadBranch, parseAgentStatus, parseCwd, parseParent, reportText, threadSlugOf, workspaceRefOfId, workspaceRefsByTitle } from './parse'
 
 const DELIVERY_CHECK_MS = 15_000
 
 const hops = atom({ plugin: 'wakemux', key: 'hops' } as const, { head: '', count: 0 }, { shape: 'hops-1' })
 const lastReport = atom({ plugin: 'wakemux', key: 'lastReport' } as const, { key: '', at: 0 }, { shape: 'last-report-1' })
 
-type ThreadContext = { slug: string; main: string; gitDir: string; threadBranch: string }
-// Only a positive answer is kept: a session can become a thread later, a thread stays one.
-let context: ThreadContext | undefined
+type ThreadContext = { slug: string; main: string; top: string; gitDir: string; threadBranch: string }
 let mainRef = ''
 
-// A thread is a worktree under worktreeDir that is on a thread branch or whose own thread branch
-// exists. The second case keeps a thread that switched branches; `claude --worktree` worktrees in
-// the same folder have neither.
+// A session is a thread when the folder it started in is a worktree under worktreeDir that is on
+// a thread branch or whose own thread branch exists. The start folder ($.session.root) stays put
+// when the shell cds elsewhere, so a main session that works inside a thread's worktree is not that
+// thread; `claude --worktree` worktrees in the same folder have no thread branch. Decided on every
+// turn, never cached: the answer must not outlive what it was computed from (#7, #10).
+// A session never reports to itself, whatever the folders say.
 async function threadContext($: Dollar): Promise<ThreadContext | null> {
-  if (context) return context
-  const main = await mainCheckout($)
-  const top = (await git($, '.', 'rev-parse', '--show-toplevel')).stdout.trim()
+  const root = await $.session.root()
+  const top = (await git($, root, 'rev-parse', '--show-toplevel')).stdout.trim()
+  if (!top) return null
+  const main = await mainCheckout($, top)
   const { config } = await loadConfig($, main)
   const slug = threadSlugOf(top, main, config.worktreeDir)
   if (!slug) return null
   const threadBranch = config.branchPrefix + slug
-  const branch = (await git($, '.', 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
+  const branch = (await git($, top, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
   const isThread =
     isThreadBranch(branch, config.branchPrefix) ||
-    (await git($, '.', 'rev-parse', '--verify', '--quiet', `refs/heads/${threadBranch}`)).exitCode === 0
+    (await git($, top, 'rev-parse', '--verify', '--quiet', `refs/heads/${threadBranch}`)).exitCode === 0
   if (!isThread) return null
-  const gitDir = (await git($, '.', 'rev-parse', '--absolute-git-dir')).stdout.trim()
-  context = { slug, main, gitDir, threadBranch }
-  return context
+  const gitDir = (await git($, top, 'rev-parse', '--absolute-git-dir')).stdout.trim()
+  if (await isOwnParent($, gitDir)) return null
+  return { slug, main, top, gitDir, threadBranch }
+}
+
+async function isOwnParent($: Dollar, gitDir: string): Promise<boolean> {
+  const workspace = (await $.env.get('CMUX_WORKSPACE_ID')) ?? ''
+  const parent = parseParent(await readNote($, `${gitDir}/wakemux-parent`))
+  if (workspace && parent.toUpperCase() === workspace.toUpperCase()) return true
+  const session = await $.session.id()
+  const parentSession = parseSessionId(await readNote($, `${gitDir}/wakemux-parent-session`))
+  return session !== '' && parentSession === session
 }
 
 // Every session publishes its id to the commands it runs, so `wakemux new` can store it.
@@ -73,8 +84,11 @@ export async function publishSessionId($: Dollar) {
 }
 
 // The main session is the workspace whose cwd is the main checkout. Titles like "main" repeat across projects.
+// The thread's own workspace is skipped: its shell may sit in the main checkout too.
 async function findMainRef($: Dollar, main: string): Promise<string> {
-  const refs = [...workspaceRefsByTitle((await cmux($, 'tree', '--all', '--json')).stdout).values()].flat()
+  const tree = (await cmux($, 'tree', '--all', '--json')).stdout
+  const own = workspaceRefOfId(tree, (await $.env.get('CMUX_WORKSPACE_ID')) ?? '')
+  const refs = [...workspaceRefsByTitle(tree).values()].flat().filter(ref => ref !== own)
   for (const ref of refs) {
     if (parseCwd((await cmux($, 'sidebar-state', '--workspace', ref)).stdout) === main) return ref
   }
@@ -182,10 +196,10 @@ export async function sendReport($: Dollar, reason: Report['reason'], answer: st
   const { config } = await loadConfig($, ctx.main)
 
   const base = (await git($, ctx.main, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
-  const branch = (await git($, '.', 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
-  const ahead = Number((await git($, '.', 'rev-list', '--count', `${base}..HEAD`)).stdout.trim()) || 0
-  const report: Report = { slug: ctx.slug, branch, threadBranch: ctx.threadBranch, ahead, dirty: await dirtyCount($, '.', true), reason, answer }
-  const head = (await git($, '.', 'rev-parse', 'HEAD')).stdout.trim()
+  const branch = (await git($, ctx.top, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
+  const ahead = Number((await git($, ctx.top, 'rev-list', '--count', `${base}..HEAD`)).stdout.trim()) || 0
+  const report: Report = { slug: ctx.slug, branch, threadBranch: ctx.threadBranch, ahead, dirty: await dirtyCount($, ctx.top, true), reason, answer }
+  const head = (await git($, ctx.top, 'rev-parse', 'HEAD')).stdout.trim()
   const pill = { ahead: report.ahead, dirty: report.dirty, reason, pausedAfter: 0 }
   if (!config.report) return setPill($, threadPill(pill))
 
