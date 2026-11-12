@@ -53,9 +53,11 @@ const TURN_START_GRACE_S = 3
 
 export type MidTurnReport = { id: string; head: string }
 
-// Thread reports in `cmux agent inbox --json` delivered after the turn began at turnStart (seconds),
-// oldest first, leaving out the ids in skip.
-export function midTurnReports(inboxJson: string, turnStart: number, skip: string[]): MidTurnReport[] {
+// Thread reports in `cmux agent inbox --json` delivered to surface after the turn began at
+// turnStart (seconds), oldest first, leaving out the ids in skip. The inbox of a surface also
+// lists the messages it sent, such as a thread's own reports; those are not for this session.
+export function midTurnReports(inboxJson: string, turnStart: number, skip: string[], surface: string): MidTurnReport[] {
+  const own = surface.toUpperCase()
   const messages = asRecord(parseJson(inboxJson))?.messages
   if (!Array.isArray(messages)) return []
   const found: (MidTurnReport & { at: number })[] = []
@@ -63,6 +65,7 @@ export function midTurnReports(inboxJson: string, turnStart: number, skip: strin
     const record = asRecord(message)
     if (!record || typeof record.id !== 'string' || typeof record.body !== 'string') continue
     if (record.state !== 'delivered' && record.state !== 'read') continue
+    if (own === '' || typeof record.recipient_surface_id !== 'string' || record.recipient_surface_id.toUpperCase() !== own) continue
     if (typeof record.delivered_at !== 'number' || record.delivered_at < turnStart + TURN_START_GRACE_S) continue
     if (!record.body.startsWith('[Thread ') || skip.includes(record.id)) continue
     found.push({ id: record.id, head: record.body.split('\n')[0] ?? '', at: record.delivered_at })

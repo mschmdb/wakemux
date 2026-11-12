@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 - A thread could ask "SendMessage needs approval" although cmux delivered its report. cmux sometimes says a live session has no agent; the thread then forwarded the report through Claude Code at once. It now checks the cmux message first and forwards only if it stays queued.
 - Reports could queue in the project's workspace group header, a plain terminal in the main checkout, instead of reaching the main session. The lookup now skips workspaces that do not run Claude Code.
 - A failed `cmux agent message` now leaves a line in the thread's debug log.
+- A thread reminded itself of its own reports after its turn: `cmux agent inbox --surface` also lists the messages a surface sent. The mid-turn reminder now counts only reports sent to the session's own surface.
 
 ### Added
 

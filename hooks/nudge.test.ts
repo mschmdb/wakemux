@@ -14,11 +14,12 @@ const TURN_START_S = (NOW_MS - TURN_MS) / 1000
 type World = { surface?: string; inbox?: Record<string, unknown>[]; sendFails?: number }
 type Log = { messages: { argv: string[]; text: string }[]; inboxCalls: string[][]; calls: number }
 
-const report = (id: string, deliveredAt: number) => ({
+const report = (id: string, deliveredAt: number, to = SURFACE) => ({
   id,
   state: 'read',
   body: `[Thread ${id}] waiting for input. Branch thread/${id}, 1 commit, clean.\n\nDone.`,
   delivered_at: deliveredAt,
+  recipient_surface_id: to,
 })
 
 // A main session: not in a worktree, so the thread report part of the mod does nothing.
@@ -87,6 +88,13 @@ test('each report is nudged about once, even when it shows up in later turns', a
   await complete($, log, 't1')
   await complete($, log, 't2')
   expect(log.messages.length).toBe(1)
+})
+
+test('a thread is not nudged about its own outgoing report', async ($, on) => {
+  // cmux lists a surface's sent messages in its inbox too; this one went to the main session.
+  const log = fakeWorld(on, { surface: SURFACE, inbox: [report('own', TURN_START_S + 30, 'B5E0C1D2-0000-4000-8000-000000000001')] })
+  await complete($, log, 't1')
+  expect(log.messages).toEqual([])
 })
 
 test('the report that started the turn needs no nudge', async ($, on) => {

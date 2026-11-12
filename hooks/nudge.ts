@@ -30,7 +30,7 @@ async function checkInbox($: Dollar, endedAt: number, durationMs: number) {
   if (!surface || !(durationMs > 0)) return
   const turnStart = (endedAt - durationMs) / 1000
   const inbox = await cmux($, 'agent', 'inbox', '--surface', surface, '--json', '--limit', '50')
-  const missed = midTurnReports(inbox.stdout, turnStart, await read($, nudged))
+  const missed = midTurnReports(inbox.stdout, turnStart, await read($, nudged), surface)
   if (missed.length === 0) return
   // One attempt: a session that cmux cannot message cannot be woken by cmux either.
   const sent = await run($, ['cmux', 'agent', 'message', surface, '--from', 'wakemux', '--json', '-'], undefined, { CMUX_QUIET: '1' }, nudgeText(missed))

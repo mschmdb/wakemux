@@ -136,16 +136,19 @@ test('parseAgentSurface reads the agent surface id from cmux agent messages stat
 })
 
 const inbox = (...messages: Record<string, unknown>[]) => JSON.stringify({ messages })
-const report = (id: string, deliveredAt: number | null, state = 'read', body = `[Thread ${id}] waiting for input. Branch thread/${id}, 1 commit, clean.\n\nDone.`) => ({
+// The inbox of one surface also lists the messages that surface sent.
+const ME = '9969F17D-E8A9-4964-8F25-A3C0619120E2'
+const report = (id: string, deliveredAt: number | null, state = 'read', body = `[Thread ${id}] waiting for input. Branch thread/${id}, 1 commit, clean.\n\nDone.`, to = ME) => ({
   id,
   state,
   body,
   delivered_at: deliveredAt,
+  recipient_surface_id: to,
 })
 
 test('midTurnReports finds thread reports delivered after the turn began, oldest first', () => {
   const json = inbox(report('late', 1_105), report('mid', 1_050), report('before', 990), report('start', 1_001))
-  expect(midTurnReports(json, 1_000, []).map(r => r.id)).toEqual(['mid', 'late'])
+  expect(midTurnReports(json, 1_000, [], ME).map(r => r.id)).toEqual(['mid', 'late'])
 })
 
 test('midTurnReports leaves out what started the turn, what is queued, other messages and earlier nudges', () => {
@@ -157,18 +160,28 @@ test('midTurnReports leaves out what started the turn, what is queued, other mes
     report('done', 1_050),
     report('delivered', 1_060, 'delivered'),
   )
-  expect(midTurnReports(json, 1_000, ['done']).map(r => r.id)).toEqual(['delivered'])
+  expect(midTurnReports(json, 1_000, ['done'], ME).map(r => r.id)).toEqual(['delivered'])
+})
+
+test('midTurnReports keeps only reports sent to this surface, whatever the case of the id', () => {
+  const json = inbox(
+    report('mine', 1_050, 'read', undefined, ME.toLowerCase()),
+    report('outgoing', 1_050, 'read', undefined, 'A0D2085B-2E2C-4DB1-BA58-08BFE3AC79C0'),
+    report('unaddressed', 1_050, 'read', undefined, ''),
+  )
+  expect(midTurnReports(json, 1_000, [], ME).map(r => r.id)).toEqual(['mine'])
+  expect(midTurnReports(json, 1_000, [], '')).toEqual([])
 })
 
 test('midTurnReports keeps the first line of each report', () => {
-  expect(midTurnReports(inbox(report('a', 1_050)), 1_000, [])).toEqual([
+  expect(midTurnReports(inbox(report('a', 1_050)), 1_000, [], ME)).toEqual([
     { id: 'a', head: '[Thread a] waiting for input. Branch thread/a, 1 commit, clean.' },
   ])
 })
 
 test('midTurnReports reads nothing from output it does not understand', () => {
-  expect(midTurnReports('nope', 1_000, [])).toEqual([])
-  expect(midTurnReports(JSON.stringify({ messages: [null, 3, { id: 7 }] }), 1_000, [])).toEqual([])
+  expect(midTurnReports('nope', 1_000, [], ME)).toEqual([])
+  expect(midTurnReports(JSON.stringify({ messages: [null, 3, { id: 7 }] }), 1_000, [], ME)).toEqual([])
 })
 
 test('nudgeText lists the reports and asks to act on them, without looking like a report', () => {
