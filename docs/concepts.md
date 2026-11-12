@@ -41,7 +41,7 @@ When a thread's main loop finishes a turn, the wakemux mod in that thread sends 
 Delivery uses three channels in order:
 
 1. `cmux agent message`. cmux wakes an idle Claude Code session within seconds; a busy one reads the message at its next step.
-2. If cmux has not delivered the message after 15 seconds, the mod sends the report through Claude Code's cross-session messaging to the parent session. This needs the parent's session id, which `wakemux new` stores when the parent runs the wakemux mod.
+2. If cmux has not delivered the message after 15 seconds, the mod sends the report through Claude Code's cross-session messaging to the parent session. This needs the parent's session id, which `wakemux new` stores when the parent runs the wakemux mod. Claude Code asks for approval in the thread before this send unless a `SendMessage` allow rule covers it ([troubleshooting](troubleshooting.md#the-thread-asks-to-approve-sendmessage)).
 3. If that fails or no session id is stored, cmux shows a desktop notification.
 
 A report identical to the one before it within 60 seconds is not sent again. A turn that ends with an answer starting with `[quiet]` sends no report at all; a loop thread uses it for ticks without news (see [Loops](#loops)). A turn that ends in an error or a refusal always reports.

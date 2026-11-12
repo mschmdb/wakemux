@@ -2,10 +2,13 @@
 //
 // 1. `cmux agent message` to the session that started the thread, else to the main checkout's.
 //    cmux delivers through the receiver's hooks: an idle session wakes up, a busy one reads it
-//    at its next step.
+//    at its next step. cmux can say a live session has no agent and deliver anyway, so a message
+//    it took counts as sent either way.
 // 2. If the message is still queued after DELIVERY_CHECK_MS while the receiver is idle, its cmux
-//    poller is likely gone. A busy receiver gets up to ten minutes before that counts. The mod then sends the report through Claude Code (`$.session.send`, what the
-//    SendMessage tool does) to the parent session id that `wakemux new` stored.
+//    poller is likely gone. A busy receiver gets up to ten minutes before that counts. The mod
+//    then sends the report through Claude Code (`$.session.send`, what the SendMessage tool does)
+//    to the parent session id that `wakemux new` stored. Claude Code asks for approval unless a
+//    `SendMessage` allow rule covers it.
 // 3. If that fails too, a desktop notification tells the user.
 //
 // Reports on the same commit count as hops; maxHops stops ping-pong between main and thread.
@@ -88,14 +91,17 @@ export async function publishSessionId($: Dollar) {
   if (id && (await $.env.get('WAKEMUX_PARENT_SESSION')) !== id) await $.env.set('WAKEMUX_PARENT_SESSION', id)
 }
 
-// The main session is the workspace whose cwd is the main checkout. Titles like "main" repeat across projects.
-// The thread's own workspace is skipped: its shell may sit in the main checkout too.
+// The main session is the workspace whose cwd is the main checkout and that runs Claude Code.
+// Titles like "main" repeat across projects. The thread's own workspace is skipped: its shell may
+// sit in the main checkout too. So is a plain terminal there, such as the project's group header,
+// where a report would wait forever.
 async function findMainRef($: Dollar, main: string): Promise<string> {
   const tree = (await cmux($, 'tree', '--all', '--json')).stdout
   const own = workspaceRefOfId(tree, (await $.env.get('CMUX_WORKSPACE_ID')) ?? '')
   const refs = [...workspaceRefsByTitle(tree).values()].flat().filter(ref => ref !== own)
   for (const ref of refs) {
-    if (parseCwd((await cmux($, 'sidebar-state', '--workspace', ref)).stdout) === main) return ref
+    const state = (await cmux($, 'sidebar-state', '--workspace', ref)).stdout
+    if (parseCwd(state) === main && parseAgentStatus(state) !== '') return ref
   }
   return ''
 }
@@ -104,24 +110,27 @@ async function readNote($: Dollar, path: string): Promise<string> {
   return (await run($, ['/bin/cat', path])).stdout
 }
 
-function sendMessage($: Dollar, target: string, from: string, text: string) {
-  return run($, ['cmux', 'agent', 'message', target, '--from', from, '--json', '-'], undefined, { CMUX_QUIET: '1' }, text)
+// A failed send goes to the debug log, so a report that never reached cmux can be traced.
+async function sendMessage($: Dollar, target: string, from: string, text: string): Promise<Sent | null> {
+  const result = await run($, ['cmux', 'agent', 'message', target, '--from', from, '--json', '-'], undefined, { CMUX_QUIET: '1' }, text)
+  const sent = parseSent(result.stdout)
+  if (!sent) $.ui.log(`wakemux: cmux agent message to ${target} failed (exit ${result.exitCode}): ${result.stderr.trim()}`, { to: 'debug' })
+  return sent
 }
 
 // The first target with an agent wins; the spawning session first, then the main checkout's.
+// Without one, the parent's message stands: cmux took it and may still deliver it.
 async function sendThroughCmux($: Dollar, ctx: ThreadContext, parent: string, text: string): Promise<{ sent: Sent | null; target: string }> {
-  if (parent) {
-    const sent = parseSent((await sendMessage($, parent, ctx.slug, text)).stdout)
-    if (sent?.hasAgent) return { sent, target: parent }
-  }
+  const parentSent = parent ? await sendMessage($, parent, ctx.slug, text) : null
+  if (parentSent?.hasAgent) return { sent: parentSent, target: parent }
   for (let attempt = 0; attempt < 2; attempt++) {
     if (!mainRef) mainRef = await findMainRef($, ctx.main)
     if (!mainRef || mainRef === parent) break
-    const sent = parseSent((await sendMessage($, mainRef, ctx.slug, text)).stdout)
+    const sent = await sendMessage($, mainRef, ctx.slug, text)
     if (sent?.hasAgent) return { sent, target: mainRef }
     mainRef = ''
   }
-  return { sent: null, target: parent || mainRef }
+  return { sent: parentSent, target: parent || mainRef }
 }
 
 async function isPickedUp($: Dollar, sent: Sent, target: string): Promise<boolean> {

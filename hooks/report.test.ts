@@ -31,13 +31,17 @@ type World = {
   cwdTop?: string
   ownWorkspace?: string
   sessionId?: string
+  // Whether the main checkout's workspace shows a Claude Code status; false for a plain terminal.
+  mainHasAgent?: boolean
+  // A `cmux agent message` that fails: its exit code and stderr.
+  sendFails?: string
 }
 
-type Log = { cmux: string[][]; sessionSends: { to: unknown; text: string }[]; texts: string[]; calls: number; all: string[] }
+type Log = { cmux: string[][]; sessionSends: { to: unknown; text: string }[]; texts: string[]; calls: number; all: string[]; logs: string[] }
 
 // Answers the process, env, fs, clock and session calls the report makes, from `world`.
 function fakeWorld(on: On, world: World): Log {
-  const log: Log = { cmux: [], sessionSends: [], texts: [], calls: 0, all: [] }
+  const log: Log = { cmux: [], sessionSends: [], texts: [], calls: 0, all: [], logs: [] }
   on('process.run', (_, e) => {
     log.calls++
     log.all.push(e.argv.join(" "))
@@ -68,6 +72,7 @@ function fakeWorld(on: On, world: World): Log {
       log.cmux.push(argv.slice(1))
       if (argv[1] === 'agent' && argv[2] === 'message') {
         log.texts.push(e.init?.stdin ?? '')
+        if (world.sendFails) return { value: { exitCode: 1, stdout: '', stderr: world.sendFails, isStdoutTruncated: false, isStderrTruncated: false } }
         return ok(world.sendAnswer ? world.sendAnswer(argv[3] ?? '') : '')
       }
       if (argv[1] === 'agent' && argv[2] === 'messages' && argv[3] === 'status') {
@@ -80,7 +85,8 @@ function fakeWorld(on: On, world: World): Log {
       if (argv[1] === 'tree') return ok(world.mainRef ? JSON.stringify({ ref: world.mainRef, id: world.mainId ?? 'MAIN-ID', title: 'main' }) : '{}')
       if (argv[1] === 'sidebar-state') {
         // The parent's agent status for the delivery check; the main checkout's cwd for findMainRef.
-        return ok(argv[3] === 'workspace:3' ? `cwd=/elsewhere\n  claude_code=${world.parentStatus ?? 'Idle'} icon=x\n` : `cwd=${MAIN}\n`)
+        if (argv[3] === 'workspace:3') return ok(`cwd=/elsewhere\n  claude_code=${world.parentStatus ?? 'Idle'} icon=x\n`)
+        return ok(world.mainHasAgent === false ? `cwd=${MAIN}\n` : `cwd=${MAIN}\n  claude_code=Idle icon=x\n`)
       }
       return ok('')
     }
@@ -97,6 +103,10 @@ function fakeWorld(on: On, world: World): Log {
   on('session.root', () => ({ value: world.root ?? THREAD }))
   on('env.set', () => ({ value: {} }))
   on('turn.complete', () => ({ text: '' }))
+  on('ui.log', (_, e) => {
+    log.logs.push(e.text)
+    return { value: undefined }
+  })
   on('session.send', (_, e) => {
     log.sessionSends.push({ to: e.to, text: e.text })
     if (world.sessionThrows) throw new Error('session gone')
@@ -187,6 +197,54 @@ test('a parent without an agent is skipped for the main checkout session', async
   await complete($, log, 'Done.')
   expect(messages(log)).toEqual(['workspace:3', 'workspace:1'])
   expect(notifications(log)).toEqual([])
+})
+
+test('a parent message that cmux took without an agent is checked before the fallback', async ($, on) => {
+  // cmux can report no agent for a live session and still deliver the message a second later.
+  const log = fakeWorld(on, {
+    parent: 'workspace:3',
+    session: SESSION,
+    sendAnswer: () => sent('queued', false),
+    inboxState: 'delivered',
+    sessionDelivered: true,
+  })
+  await complete($, log, 'Done.')
+  expect(messages(log)).toEqual(['workspace:3'])
+  expect(log.sessionSends).toEqual([])
+  expect(notifications(log)).toEqual([])
+})
+
+test('a parent message without an agent that stays queued still gets the fallback', async ($, on) => {
+  const log = fakeWorld(on, {
+    parent: 'workspace:3',
+    session: SESSION,
+    sendAnswer: () => sent('queued', false),
+    inboxState: 'queued',
+    sessionDelivered: true,
+  })
+  await complete($, log, 'Done.')
+  expect(log.sessionSends.length).toBe(1)
+})
+
+test('the main checkout lookup skips a workspace without a Claude Code session', async ($, on) => {
+  // The project's group header is a plain terminal in the main checkout; reports must not queue there.
+  const log = fakeWorld(on, {
+    parent: 'workspace:3',
+    session: SESSION,
+    sendAnswer: () => sent('queued', false),
+    mainRef: 'workspace:1',
+    mainHasAgent: false,
+    inboxState: 'delivered',
+  })
+  await complete($, log, 'Done.')
+  expect(messages(log)).toEqual(['workspace:3'])
+  expect(log.sessionSends).toEqual([])
+})
+
+test('a failing cmux send is written to the debug log', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendFails: 'Error: socket timeout' })
+  await complete($, log, 'Done.')
+  expect(log.logs.some(line => line.includes('workspace:3') && line.includes('socket timeout'))).toBe(true)
 })
 
 test('WAKEMUX_REPORT=0 sends nothing', async ($, on) => {
