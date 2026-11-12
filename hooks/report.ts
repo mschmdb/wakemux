@@ -91,14 +91,17 @@ export async function publishSessionId($: Dollar) {
   if (id && (await $.env.get('WAKEMUX_PARENT_SESSION')) !== id) await $.env.set('WAKEMUX_PARENT_SESSION', id)
 }
 
-// The main session is the workspace whose cwd is the main checkout. Titles like "main" repeat across projects.
-// The thread's own workspace is skipped: its shell may sit in the main checkout too.
+// The main session is the workspace whose cwd is the main checkout and that runs Claude Code.
+// Titles like "main" repeat across projects. The thread's own workspace is skipped: its shell may
+// sit in the main checkout too. So is a plain terminal there, such as the project's group header,
+// where a report would wait forever.
 async function findMainRef($: Dollar, main: string): Promise<string> {
   const tree = (await cmux($, 'tree', '--all', '--json')).stdout
   const own = workspaceRefOfId(tree, (await $.env.get('CMUX_WORKSPACE_ID')) ?? '')
   const refs = [...workspaceRefsByTitle(tree).values()].flat().filter(ref => ref !== own)
   for (const ref of refs) {
-    if (parseCwd((await cmux($, 'sidebar-state', '--workspace', ref)).stdout) === main) return ref
+    const state = (await cmux($, 'sidebar-state', '--workspace', ref)).stdout
+    if (parseCwd(state) === main && parseAgentStatus(state) !== '') return ref
   }
   return ''
 }

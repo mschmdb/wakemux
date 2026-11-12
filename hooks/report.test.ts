@@ -226,6 +226,21 @@ test('a parent message without an agent that stays queued still gets the fallbac
   expect(log.sessionSends.length).toBe(1)
 })
 
+test('the main checkout lookup skips a workspace without a Claude Code session', async ($, on) => {
+  // The project's group header is a plain terminal in the main checkout; reports must not queue there.
+  const log = fakeWorld(on, {
+    parent: 'workspace:3',
+    session: SESSION,
+    sendAnswer: () => sent('queued', false),
+    mainRef: 'workspace:1',
+    mainHasAgent: false,
+    inboxState: 'delivered',
+  })
+  await complete($, log, 'Done.')
+  expect(messages(log)).toEqual(['workspace:3'])
+  expect(log.sessionSends).toEqual([])
+})
+
 test('WAKEMUX_REPORT=0 sends nothing', async ($, on) => {
   const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered'), env: { WAKEMUX_REPORT: '0' } })
   await complete($, log, 'Done.')
