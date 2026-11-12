@@ -14,6 +14,8 @@ Run side tasks as separate Claude Code sessions in [cmux](https://cmux.dev), eac
 4. The main session answers what your repository rules already settle, asks you about the rest, and lands finished threads the way your repository wants: a PR or a local merge.
 5. `wakemux done <slug>` removes the worktree and the merged branch.
 
+A thread can also run a loop, such as a watcher that checks open PRs every 30 minutes. Ticks without news stay quiet; only news reaches the main session ([details](docs/concepts.md#loops)).
+
 Each thread shows its state as a pill in the cmux sidebar. The optional `/wakemux` pane lists all threads with buttons to open, hand over and clean up.
 
 ## Requirements
@@ -44,7 +46,7 @@ When you start threads, wakemux creates worktrees, branches and cmux workspaces,
 ## Documentation
 
 - [Install](docs/install.md)
-- [Concepts](docs/concepts.md): threads, the main session, report-back, escalation, the hop limit
+- [Concepts](docs/concepts.md): threads, the main session, report-back, escalation, the hop limit, loops
 - [Configuration](docs/configuration.md): every setting and where to set it
 - [Troubleshooting](docs/troubleshooting.md)
 - [Security](docs/security.md)
