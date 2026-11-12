@@ -279,6 +279,17 @@ test('a quiet turn starts the hop count again', async ($, on) => {
   expect(log.texts[1]).not.toContain('reports in a row')
 })
 
+test('a quiet turn does not lift a pause or an escalation', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered'), env: { WAKEMUX_MAX_HOPS: '1' } })
+  await complete($, log, 'One')
+  await complete($, log, 'Two')
+  await complete($, log, '[quiet] tick')
+  await complete($, log, 'Three')
+  expect(messages(log).length).toBe(1)
+  expect(notifications(log).length).toBe(1)
+  expect(pills(log).at(-2)?.[2]).toBe('reports paused after 2 without a commit')
+})
+
 test('[quiet] counts only at the start of the answer', async ($, on) => {
   const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered') })
   await complete($, log, 'Found something. Next tick stays [quiet] unless it changes.')
