@@ -33,6 +33,7 @@ declare module 'claude-code' {
       message: Shaped<string>
       hops: Shaped<{ head: string; count: number }>
       lastReport: Shaped<{ key: string; at: number }>
+      nudged: Shaped<string[]>
     }
   }
 }
