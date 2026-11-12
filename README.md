@@ -2,7 +2,7 @@
 
 Run side tasks as separate Claude Code sessions in [cmux](https://cmux.dev), each in its own git worktree. When a thread finishes a turn, it reports back to your main session and wakes it up. You watch one session instead of five.
 
-**Status:** 0.3.3. Tested on the author's Mac with cmux 0.65.2 and Claude Code 2.1.319.
+**Status:** 0.3.4. Tested on the author's Mac with cmux 0.65.2 and Claude Code 2.1.322.
 
 **Maintenance:** I build wakemux for my own work and fix what breaks for me. Issues and PRs are welcome, but I make no promises about response times or new features.
 
@@ -13,6 +13,8 @@ Run side tasks as separate Claude Code sessions in [cmux](https://cmux.dev), eac
 3. When the thread finishes a turn, it sends its answer to the main session. cmux wakes the main session if it is idle. If that does not work, wakemux tries Claude Code's own messaging and then a desktop notification ([details](docs/concepts.md#report-back)).
 4. The main session answers what your repository rules already settle, asks you about the rest, and lands finished threads the way your repository wants: a PR or a local merge.
 5. `wakemux done <slug>` removes the worktree and the merged branch.
+
+A thread can also run a loop, such as a watcher that checks open PRs every 30 minutes. Ticks without news stay quiet; only news reaches the main session ([details](docs/concepts.md#loops)).
 
 Each thread shows its state as a pill in the cmux sidebar. The optional `/wakemux` pane lists all threads with buttons to open, hand over and clean up.
 
@@ -44,7 +46,7 @@ When you start threads, wakemux creates worktrees, branches and cmux workspaces,
 ## Documentation
 
 - [Install](docs/install.md)
-- [Concepts](docs/concepts.md): threads, the main session, report-back, escalation, the hop limit
+- [Concepts](docs/concepts.md): threads, the main session, report-back, escalation, the hop limit, loops
 - [Configuration](docs/configuration.md): every setting and where to set it
 - [Troubleshooting](docs/troubleshooting.md)
 - [Security](docs/security.md)

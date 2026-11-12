@@ -19,6 +19,7 @@ import type { HopAction, Sent } from './delivery'
 import {
   escalationNote,
   forwardText,
+  isQuietAnswer,
   hopAction,
   isDuplicate,
   keepWaiting,
@@ -194,6 +195,20 @@ function decide($: Dollar, report: Report, head: string, maxHops: number): Promi
   return next
 }
 
+// A quiet turn shows the thread is not answering the main session; the count starts again.
+// Once the limit is reached it stays until a commit, so a loop's ticks cannot lift an
+// escalation or a pause. Runs in the same queue as the hop decisions; returns the count kept.
+function resetHops($: Dollar, head: string, maxHops: number): Promise<number> {
+  const next = decisions.then(async () => {
+    const current = await read($, hops)
+    const keep = maxHops > 0 && current.head === head && current.count >= maxHops
+    if (!keep) await update($, hops, () => ({ head, count: 0 }))
+    return keep ? current.count : 0
+  })
+  decisions = next.catch(() => undefined)
+  return next
+}
+
 export async function sendReport($: Dollar, reason: Report['reason'], answer: string) {
   const ctx = await threadContext($)
   if (!ctx) return
@@ -206,6 +221,10 @@ export async function sendReport($: Dollar, reason: Report['reason'], answer: st
   const head = (await git($, ctx.top, 'rev-parse', 'HEAD')).stdout.trim()
   const pill = { ahead: report.ahead, dirty: report.dirty, reason, pausedAfter: 0 }
   if (!config.report) return setPill($, threadPill(pill))
+  if (reason === 'answer' && isQuietAnswer(answer)) {
+    const kept = await resetHops($, head, config.maxHops)
+    return setPill($, threadPill({ ...pill, pausedAfter: kept > config.maxHops ? kept : 0 }))
+  }
 
   const decision = await decide($, report, head, config.maxHops)
   if (!decision) return

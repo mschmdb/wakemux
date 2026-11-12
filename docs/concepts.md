@@ -44,7 +44,7 @@ Delivery uses three channels in order:
 2. If cmux has not delivered the message after 15 seconds, the mod sends the report through Claude Code's cross-session messaging to the parent session. This needs the parent's session id, which `wakemux new` stores when the parent runs the wakemux mod.
 3. If that fails or no session id is stored, cmux shows a desktop notification.
 
-A report identical to the one before it within 60 seconds is not sent again.
+A report identical to the one before it within 60 seconds is not sent again. A turn that ends with an answer starting with `[quiet]` sends no report at all; a loop thread uses it for ticks without news (see [Loops](#loops)). A turn that ends in an error or a refusal always reports.
 
 A busy session gets a cmux message attached to the result of its next tool call, in the middle of its turn, and may carry on with its task without acting on it. So every session checks its own cmux inbox when its turn ends. If a thread report arrived during the turn, the session sends itself one short message that lists those reports. The session is idle by then, so the message starts a new turn. Each report causes at most one such message.
 
@@ -59,7 +59,13 @@ The main session reads each report and decides, following the `thread` skill:
 
 ## Hop limit
 
-A thread and the main session can answer each other in circles. wakemux counts reports in a row on the same commit. The report number `maxHops` (default 6) asks the main session to stop answering and ask you. The next report becomes a desktop notification instead, and after that the thread stops reporting until it commits again.
+A thread and the main session can answer each other in circles. wakemux counts reports in a row on the same commit. The report number `maxHops` (default 6) asks the main session to stop answering and ask you. The next report becomes a desktop notification instead, and after that the thread stops reporting until it commits again. A quiet turn (an answer that starts with `[quiet]`) is not a hop and starts the count again, unless the count has already reached `maxHops`: an escalation or a pause lasts until the next commit.
+
+## Loops
+
+A thread can repeat a check on a schedule, for example a watcher that looks at open PRs every 30 minutes with `/loop` or the CronCreate tool. Running such a loop in a thread instead of the main session keeps its ticks out of your conversation, and a short tick answer cannot push a thread's report out of sight.
+
+A tick without news starts its answer with `[quiet]`: it sends no report, does not count toward the hop limit and still updates the sidebar pill. A tick with news answers normally and reaches the main session like any report. The `thread` skill tells the main session which lines to put in such a thread's first prompt.
 
 ## Status
 

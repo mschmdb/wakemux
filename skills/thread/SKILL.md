@@ -25,6 +25,18 @@ Each thread shows its state as a pill in the cmux sidebar: commits ahead, uncomm
 
 For several threads at once, run one command per task.
 
+## Loops
+
+When the user wants something checked again and again, such as a watcher that looks at open PRs every 30 minutes, run it as a thread, not in this session. A loop in this session gets in the way: its ticks arrive while the user talks to you, and a short tick answer pushes a thread's report out of sight.
+
+Start it like any thread, with these lines in the first prompt:
+
+- "Repeat the check every <interval> with `/loop <interval> <check>` or the CronCreate tool."
+- "When a tick finds nothing new, start your answer with `[quiet]`. Such a turn sends no report. When there is news or something to decide, answer normally; the answer reaches the main session."
+- "Never approve, sign, merge or deploy yourself. Report what needs it."
+
+A loop thread counts toward `maxThreads`. It never commits, so its worktree stays clean; clean it up when the user stops the loop.
+
 ## Clean up
 
 Only when the user asks for it ("thread X is done", "clean up X"), including through the pane's hand-over button.
@@ -35,7 +47,7 @@ Only when the user asks for it ("thread X is done", "clean up X"), including thr
 
 ## Orchestrate
 
-Threads report on their own. At the end of every thread turn, the wakemux mod sends the thread's last answer with `cmux agent message` to the session that started the thread (`wakemux new` stores it in `<git-dir>/wakemux-parent`), or else to the main checkout's session. It arrives as a message from `[Thread <slug>]` and wakes the main session, even when it is idle. To turn reports off on a machine, set `WAKEMUX_REPORT=0`.
+Threads report on their own. At the end of every thread turn, the wakemux mod sends the thread's last answer with `cmux agent message` to the session that started the thread (`wakemux new` stores it in `<git-dir>/wakemux-parent`), or else to the main checkout's session. It arrives as a message from `[Thread <slug>]` and wakes the main session, even when it is idle. To turn reports off on a machine, set `WAKEMUX_REPORT=0`. A thread turn whose answer starts with `[quiet]` sends no report, unless the turn ended in an error.
 
 The main session then acts as the orchestrator. The user should only have to watch this session.
 
