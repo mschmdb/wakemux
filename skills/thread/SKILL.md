@@ -47,7 +47,7 @@ Only when the user asks for it ("thread X is done", "clean up X"), including thr
 
 ## Orchestrate
 
-Threads report on their own. At the end of every thread turn, the wakemux mod sends the thread's last answer with `cmux agent message` to the session that started the thread (`wakemux new` stores it in `<git-dir>/wakemux-parent`), or else to the main checkout's session. It arrives as a message from `[Thread <slug>]` and wakes the main session, even when it is idle. To turn reports off on a machine, set `WAKEMUX_REPORT=0`. A thread turn whose answer starts with `[quiet]` sends no report.
+Threads report on their own. At the end of every thread turn, the wakemux mod sends the thread's last answer with `cmux agent message` to the session that started the thread (`wakemux new` stores it in `<git-dir>/wakemux-parent`), or else to the main checkout's session. It arrives as a message from `[Thread <slug>]` and wakes the main session, even when it is idle. To turn reports off on a machine, set `WAKEMUX_REPORT=0`. A thread turn whose answer starts with `[quiet]` sends no report, unless the turn ended in an error.
 
 The main session then acts as the orchestrator. The user should only have to watch this session.
 
