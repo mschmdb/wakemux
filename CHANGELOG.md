@@ -4,6 +4,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+### Fixed
+
+- A report that reached a busy main session in the middle of its turn could go unanswered: the session finished what it was doing and passed over it. When a turn ends, the session now checks its cmux inbox for thread reports that arrived during the turn and sends itself one reminder that lists them.
+
 ## [0.3.3] - 2026-11-09
 
 ### Fixed

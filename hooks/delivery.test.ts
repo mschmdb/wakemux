@@ -6,6 +6,8 @@ import {
   hopAction,
   isDuplicate,
   messageState,
+  midTurnReports,
+  nudgeText,
   nextHops,
   notifyBody,
   parseSent,
@@ -130,4 +132,48 @@ test('parseAgentSurface reads the agent surface id from cmux agent messages stat
   expect(parseAgentSurface(JSON.stringify({ id: 'A0D2085B-2E2C-4DB1-BA58-08BFE3AC79C0', scope: 'surface' }))).toBe('A0D2085B-2E2C-4DB1-BA58-08BFE3AC79C0')
   expect(parseAgentSurface(JSON.stringify({ scope: 'surface' }))).toBe('')
   expect(parseAgentSurface('nope')).toBe('')
+})
+
+const inbox = (...messages: Record<string, unknown>[]) => JSON.stringify({ messages })
+const report = (id: string, deliveredAt: number | null, state = 'read', body = `[Thread ${id}] waiting for input. Branch thread/${id}, 1 commit, clean.\n\nDone.`) => ({
+  id,
+  state,
+  body,
+  delivered_at: deliveredAt,
+})
+
+test('midTurnReports finds thread reports delivered after the turn began, oldest first', () => {
+  const json = inbox(report('late', 1_105), report('mid', 1_050), report('before', 990), report('start', 1_001))
+  expect(midTurnReports(json, 1_000, []).map(r => r.id)).toEqual(['mid', 'late'])
+})
+
+test('midTurnReports leaves out what started the turn, what is queued, other messages and earlier nudges', () => {
+  const json = inbox(
+    report('grace', 1_002),
+    report('queued', null, 'queued'),
+    report('failed', 1_050, 'failed'),
+    report('reply', 1_050, 'read', 'Main session: merged.'),
+    report('done', 1_050),
+    report('delivered', 1_060, 'delivered'),
+  )
+  expect(midTurnReports(json, 1_000, ['done']).map(r => r.id)).toEqual(['delivered'])
+})
+
+test('midTurnReports keeps the first line of each report', () => {
+  expect(midTurnReports(inbox(report('a', 1_050)), 1_000, [])).toEqual([
+    { id: 'a', head: '[Thread a] waiting for input. Branch thread/a, 1 commit, clean.' },
+  ])
+})
+
+test('midTurnReports reads nothing from output it does not understand', () => {
+  expect(midTurnReports('nope', 1_000, [])).toEqual([])
+  expect(midTurnReports(JSON.stringify({ messages: [null, 3, { id: 7 }] }), 1_000, [])).toEqual([])
+})
+
+test('nudgeText lists the reports and asks to act on them, without looking like a report', () => {
+  const text = nudgeText([{ id: 'm-1', head: '[Thread a] waiting for input.' }, { id: 'm-2', head: '[Thread b] aborted.' }])
+  expect(text.startsWith('[wakemux]')).toBe(true)
+  expect(text).toContain('- [Thread a] waiting for input. (message m-1)')
+  expect(text).toContain('- [Thread b] aborted. (message m-2)')
+  expect(text).toContain('middle of your last turn')
 })

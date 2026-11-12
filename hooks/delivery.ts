@@ -40,6 +40,40 @@ export function messageState(inboxJson: string, id: string): string {
   return ''
 }
 
+// A report that cmux hands over while the receiving session works is attached to the next tool
+// result, mid-turn, and the session may pass over it. Reports delivered within this many seconds
+// of the turn's start are what started the turn.
+const TURN_START_GRACE_S = 3
+
+export type MidTurnReport = { id: string; head: string }
+
+// Thread reports in `cmux agent inbox --json` delivered after the turn began at turnStart (seconds),
+// oldest first, leaving out the ids in skip.
+export function midTurnReports(inboxJson: string, turnStart: number, skip: string[]): MidTurnReport[] {
+  const messages = asRecord(parseJson(inboxJson))?.messages
+  if (!Array.isArray(messages)) return []
+  const found: (MidTurnReport & { at: number })[] = []
+  for (const message of messages) {
+    const record = asRecord(message)
+    if (!record || typeof record.id !== 'string' || typeof record.body !== 'string') continue
+    if (record.state !== 'delivered' && record.state !== 'read') continue
+    if (typeof record.delivered_at !== 'number' || record.delivered_at < turnStart + TURN_START_GRACE_S) continue
+    if (!record.body.startsWith('[Thread ') || skip.includes(record.id)) continue
+    found.push({ id: record.id, head: record.body.split('\n')[0] ?? '', at: record.delivered_at })
+  }
+  return found.sort((a, b) => a.at - b.at).map(({ id, head }) => ({ id, head }))
+}
+
+// Starts with [wakemux], not [Thread, so the nudge is never taken for a report itself.
+export function nudgeText(reports: MidTurnReport[]): string {
+  const lines = reports.map(report => `- ${report.head} (message ${report.id})`)
+  return [
+    '[wakemux] These thread reports reached you in the middle of your last turn, attached to a tool result, so you may have passed over them:',
+    ...lines,
+    'If you have not acted on one yet, do it now: answer the thread or tell the user. If you have, say so in one line.',
+  ].join('\n')
+}
+
 const BUSY_WAIT_MS = 600_000
 
 // A queued message is normal while the receiving session works: cmux hands it over at the

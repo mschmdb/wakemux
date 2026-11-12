@@ -46,6 +46,8 @@ Delivery uses three channels in order:
 
 A report identical to the one before it within 60 seconds is not sent again.
 
+A busy session gets a cmux message attached to the result of its next tool call, in the middle of its turn, and may carry on with its task without acting on it. So every session checks its own cmux inbox when its turn ends. If a thread report arrived during the turn, the session sends itself one short message that lists those reports. The session is idle by then, so the message starts a new turn. Each report causes at most one such message.
+
 ## Orchestrator
 
 The main session reads each report and decides, following the `thread` skill:
