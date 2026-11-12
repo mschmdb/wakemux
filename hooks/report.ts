@@ -110,9 +110,12 @@ async function readNote($: Dollar, path: string): Promise<string> {
   return (await run($, ['/bin/cat', path])).stdout
 }
 
+// A failed send goes to the debug log, so a report that never reached cmux can be traced.
 async function sendMessage($: Dollar, target: string, from: string, text: string): Promise<Sent | null> {
   const result = await run($, ['cmux', 'agent', 'message', target, '--from', from, '--json', '-'], undefined, { CMUX_QUIET: '1' }, text)
-  return parseSent(result.stdout)
+  const sent = parseSent(result.stdout)
+  if (!sent) $.ui.log(`wakemux: cmux agent message to ${target} failed (exit ${result.exitCode}): ${result.stderr.trim()}`, { to: 'debug' })
+  return sent
 }
 
 // The first target with an agent wins; the spawning session first, then the main checkout's.

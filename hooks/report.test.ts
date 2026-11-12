@@ -241,6 +241,12 @@ test('the main checkout lookup skips a workspace without a Claude Code session',
   expect(log.sessionSends).toEqual([])
 })
 
+test('a failing cmux send is written to the debug log', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendFails: 'Error: socket timeout' })
+  await complete($, log, 'Done.')
+  expect(log.logs.some(line => line.includes('workspace:3') && line.includes('socket timeout'))).toBe(true)
+})
+
 test('WAKEMUX_REPORT=0 sends nothing', async ($, on) => {
   const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered'), env: { WAKEMUX_REPORT: '0' } })
   await complete($, log, 'Done.')
