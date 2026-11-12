@@ -50,6 +50,8 @@ Set only the answers that differ from the default, one command each, for example
 
 Run `<wakemux> config` again and confirm the values. `docs/configuration.md` lists every setting (in the clone, or at https://github.com/mschmdb/wakemux/blob/main/docs/configuration.md).
 
+Then offer the `SendMessage` allow rule. When cmux cannot deliver a report, the thread forwards it through Claude Code, and Claude Code asks for approval in the thread first. The report waits until someone approves it there. Explain the trade-off in two sentences: with the rule, Claude Code no longer asks before any `SendMessage`, also when the model sends one in any session; without it, a forwarded report waits for a click in the thread. Only with a yes, ask the user to add `SendMessage` on the Allow tab of `/permissions`, or to put `"SendMessage"` into `permissions.allow` of `~/.claude/settings.json` themselves. Do not edit that file yourself, and tell the user that the uninstall does not remove the rule.
+
 ## 5. Finish
 
 Tell the user:

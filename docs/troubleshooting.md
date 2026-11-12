@@ -9,10 +9,29 @@ cmux agent inbox --limit 5
 ```
 
 - **`queued` for a long time:** a likely cause is that the receiving session has no running cmux poller. Claude Code sessions started by cmux run `cmux hooks claude inbox-wait` in the background; check with `pgrep -fl inbox-wait`. In the author's test, a SendMessage to such a session woke it and started a new poller. Restarting the session may help as well (not verified). wakemux forwards a report through Claude Code after 15 seconds in this case; if you saw neither the report nor a desktop notification, read the debug log (`claude --debug`) of the thread session for lines starting with `wakemux:`.
+- **`delivered` or `read`, and the thread still asked "SendMessage needs approval":** the thread forwarded the report through Claude Code as well, and Claude Code asks before it sends. See [The thread asks to approve SendMessage](#the-thread-asks-to-approve-sendmessage).
 - **`failed`:** agent messages may be off for that session. Check with `cmux agent messages status`, turn them on with `cmux agent messages on`.
 - **Nothing listed:** the thread did not send. Check `WAKEMUX_REPORT` and the `report` setting (`wakemux config` does not show it; the `/wakemux` pane shows setting warnings).
 
 A session started outside cmux, for example in another terminal app, has no cmux hooks and receives no cmux messages.
+
+If a report never showed up in `cmux agent inbox`, the thread's debug log (`claude --debug`) has a line `wakemux: cmux agent message to <target> failed` with cmux's error.
+
+## The thread asks to approve SendMessage
+
+The cmux sidebar shows "SendMessage needs approval" (or the same in your language) for a thread. The thread forwarded its report through Claude Code (`$.session.send`), and Claude Code runs that send through the same permission check as the SendMessage tool. The report waits until you approve it in the thread.
+
+To let these sends through without asking, add an allow rule for the tool, on the Allow tab of `/permissions` or in `~/.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": ["SendMessage"]
+  }
+}
+```
+
+The rule also lets the model's own SendMessage calls through without asking, in every session that reads the file. In the author's test (Claude Code 2.1.322, auto mode) the rule removed the prompt and also released a send that was already waiting. Other permission modes are not tested.
 
 ## The thread reports nothing because it paused
 
