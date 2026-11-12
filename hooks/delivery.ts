@@ -40,6 +40,12 @@ export function messageState(inboxJson: string, id: string): string {
   return ''
 }
 
+// A thread marks a turn with nothing to tell, such as a loop's tick without news, by starting
+// its answer with [quiet]. Such a turn sends no report and does not count as a hop.
+export function isQuietAnswer(answer: string): boolean {
+  return answer.trimStart().startsWith('[quiet]')
+}
+
 // A report that cmux hands over while the receiving session works is attached to the next tool
 // result, mid-turn, and the session may pass over it. Reports delivered within this many seconds
 // of the turn's start are what started the turn.

@@ -5,6 +5,7 @@ import {
   forwardText,
   hopAction,
   isDuplicate,
+  isQuietAnswer,
   messageState,
   midTurnReports,
   nudgeText,
@@ -176,4 +177,12 @@ test('nudgeText lists the reports and asks to act on them, without looking like 
   expect(text).toContain('- [Thread a] waiting for input. (message m-1)')
   expect(text).toContain('- [Thread b] aborted. (message m-2)')
   expect(text).toContain('middle of your last turn')
+})
+
+test('isQuietAnswer takes [quiet] only at the start, after blank space', () => {
+  expect(isQuietAnswer('[quiet] nothing new')).toBe(true)
+  expect(isQuietAnswer('\n  [quiet]')).toBe(true)
+  expect(isQuietAnswer('News. [quiet]')).toBe(false)
+  expect(isQuietAnswer('[Quiet] nothing')).toBe(false)
+  expect(isQuietAnswer('')).toBe(false)
 })

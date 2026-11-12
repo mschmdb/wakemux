@@ -253,6 +253,45 @@ test('the same answer on a new commit is not a duplicate', async ($, on) => {
   expect(messages(log).length).toBe(2)
 })
 
+
+test('an answer that starts with [quiet] sends no report but still sets the pill', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered') })
+  await complete($, log, '  [quiet] 18:00: nothing new.')
+  expect(messages(log)).toEqual([])
+  expect(notifications(log)).toEqual([])
+  expect(log.cmux.filter(call => call[0] === 'set-status').length).toBe(1)
+})
+
+test('quiet turns on one commit never reach the hop limit, and news after them goes out', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered'), env: { WAKEMUX_MAX_HOPS: '2' } })
+  for (let tick = 0; tick < 5; tick++) await complete($, log, `[quiet] tick ${tick}`)
+  await complete($, log, 'PR #12 needs your approval.')
+  expect(messages(log).length).toBe(1)
+  expect(log.texts[0]).not.toContain('[wakemux]')
+})
+
+test('a quiet turn starts the hop count again', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered'), env: { WAKEMUX_MAX_HOPS: '2' } })
+  await complete($, log, 'News 1')
+  await complete($, log, '[quiet] nothing new')
+  await complete($, log, 'News 2')
+  expect(messages(log).length).toBe(2)
+  expect(log.texts[1]).not.toContain('reports in a row')
+})
+
+test('[quiet] counts only at the start of the answer', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered') })
+  await complete($, log, 'Found something. Next tick stays [quiet] unless it changes.')
+  expect(messages(log).length).toBe(1)
+})
+
+test('a turn that ends in an error reports even when it starts with [quiet]', async ($, on) => {
+  const log = fakeWorld(on, { parent: 'workspace:3', sendAnswer: () => sent('delivered') })
+  await $.turn.complete({ answer: '[quiet] tick', reason: 'error', durationMs: 1, isAborted: false, turnId: 't-error' })
+  await settle(log)
+  expect(messages(log).length).toBe(1)
+})
+
 const pills = (log: Log) => log.cmux.filter(call => call[0] === 'set-status')
 
 test('each turn end sets the thread pill in the sidebar', async ($, on) => {

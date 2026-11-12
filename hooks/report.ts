@@ -19,6 +19,7 @@ import type { HopAction, Sent } from './delivery'
 import {
   escalationNote,
   forwardText,
+  isQuietAnswer,
   hopAction,
   isDuplicate,
   keepWaiting,
@@ -194,6 +195,14 @@ function decide($: Dollar, report: Report, head: string, maxHops: number): Promi
   return next
 }
 
+// A quiet turn shows the thread is not answering the main session; the count starts again.
+// It runs in the same queue as the hop decisions.
+function resetHops($: Dollar, head: string): Promise<void> {
+  const next = decisions.then(() => update($, hops, () => ({ head, count: 0 })))
+  decisions = next.catch(() => undefined)
+  return next.then(() => undefined)
+}
+
 export async function sendReport($: Dollar, reason: Report['reason'], answer: string) {
   const ctx = await threadContext($)
   if (!ctx) return
@@ -206,6 +215,10 @@ export async function sendReport($: Dollar, reason: Report['reason'], answer: st
   const head = (await git($, ctx.top, 'rev-parse', 'HEAD')).stdout.trim()
   const pill = { ahead: report.ahead, dirty: report.dirty, reason, pausedAfter: 0 }
   if (!config.report) return setPill($, threadPill(pill))
+  if (reason === 'answer' && isQuietAnswer(answer)) {
+    await resetHops($, head)
+    return setPill($, threadPill(pill))
+  }
 
   const decision = await decide($, report, head, config.maxHops)
   if (!decision) return
