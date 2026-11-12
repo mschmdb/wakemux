@@ -2,10 +2,13 @@
 //
 // 1. `cmux agent message` to the session that started the thread, else to the main checkout's.
 //    cmux delivers through the receiver's hooks: an idle session wakes up, a busy one reads it
-//    at its next step.
+//    at its next step. cmux can say a live session has no agent and deliver anyway, so a message
+//    it took counts as sent either way.
 // 2. If the message is still queued after DELIVERY_CHECK_MS while the receiver is idle, its cmux
-//    poller is likely gone. A busy receiver gets up to ten minutes before that counts. The mod then sends the report through Claude Code (`$.session.send`, what the
-//    SendMessage tool does) to the parent session id that `wakemux new` stored.
+//    poller is likely gone. A busy receiver gets up to ten minutes before that counts. The mod
+//    then sends the report through Claude Code (`$.session.send`, what the SendMessage tool does)
+//    to the parent session id that `wakemux new` stored. Claude Code asks for approval unless a
+//    `SendMessage` allow rule covers it.
 // 3. If that fails too, a desktop notification tells the user.
 //
 // Reports on the same commit count as hops; maxHops stops ping-pong between main and thread.
@@ -104,24 +107,24 @@ async function readNote($: Dollar, path: string): Promise<string> {
   return (await run($, ['/bin/cat', path])).stdout
 }
 
-function sendMessage($: Dollar, target: string, from: string, text: string) {
-  return run($, ['cmux', 'agent', 'message', target, '--from', from, '--json', '-'], undefined, { CMUX_QUIET: '1' }, text)
+async function sendMessage($: Dollar, target: string, from: string, text: string): Promise<Sent | null> {
+  const result = await run($, ['cmux', 'agent', 'message', target, '--from', from, '--json', '-'], undefined, { CMUX_QUIET: '1' }, text)
+  return parseSent(result.stdout)
 }
 
 // The first target with an agent wins; the spawning session first, then the main checkout's.
+// Without one, the parent's message stands: cmux took it and may still deliver it.
 async function sendThroughCmux($: Dollar, ctx: ThreadContext, parent: string, text: string): Promise<{ sent: Sent | null; target: string }> {
-  if (parent) {
-    const sent = parseSent((await sendMessage($, parent, ctx.slug, text)).stdout)
-    if (sent?.hasAgent) return { sent, target: parent }
-  }
+  const parentSent = parent ? await sendMessage($, parent, ctx.slug, text) : null
+  if (parentSent?.hasAgent) return { sent: parentSent, target: parent }
   for (let attempt = 0; attempt < 2; attempt++) {
     if (!mainRef) mainRef = await findMainRef($, ctx.main)
     if (!mainRef || mainRef === parent) break
-    const sent = parseSent((await sendMessage($, mainRef, ctx.slug, text)).stdout)
+    const sent = await sendMessage($, mainRef, ctx.slug, text)
     if (sent?.hasAgent) return { sent, target: mainRef }
     mainRef = ''
   }
-  return { sent: null, target: parent || mainRef }
+  return { sent: parentSent, target: parent || mainRef }
 }
 
 async function isPickedUp($: Dollar, sent: Sent, target: string): Promise<boolean> {
