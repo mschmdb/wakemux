@@ -4,6 +4,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+### Fixed
+
+- A thread could send its report twice and ask "SendMessage needs approval" although the main session had the report. When cmux said the main session had no agent, the thread also sent the report to another idle session in the main checkout. That copy stayed queued, so the thread forwarded the report through Claude Code as well. The thread now checks first whether the session that started it picked the report up, and tries other sessions only when it did not.
+
 ## [0.3.4] - 2026-11-12
 
 ### Added

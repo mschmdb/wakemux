@@ -16,6 +16,8 @@ type World = {
   sendAnswer?: (target: string) => string
   inboxState?: string
   inboxStates?: string[]
+  // Per message id, for reports that went to more than one session.
+  inboxById?: Record<string, string>
   parentStatus?: string
   sessionDelivered?: boolean
   env?: Record<string, string>
@@ -79,6 +81,7 @@ function fakeWorld(on: On, world: World): Log {
         return ok(JSON.stringify({ id: 'PARENT-SURFACE', scope: 'surface', receiving: true }))
       }
       if (argv[1] === 'agent' && argv[2] === 'inbox') {
+        if (world.inboxById) return ok(JSON.stringify({ messages: Object.entries(world.inboxById).map(([id, state]) => ({ id, state })) }))
         const state = world.inboxStates?.shift() ?? world.inboxState ?? 'queued'
         return ok(JSON.stringify({ messages: [{ id: 'm1', state }] }))
       }
@@ -133,8 +136,8 @@ async function settle(log: Log) {
   }
 }
 
-const sent = (state: string, hasAgent = true) =>
-  JSON.stringify({ id: 'm1', state, recipient_has_agent: hasAgent, recipient_surface_id: 'S1' })
+const sent = (state: string, hasAgent = true, id = 'm1', surface = 'S1') =>
+  JSON.stringify({ id, state, recipient_has_agent: hasAgent, recipient_surface_id: surface })
 
 const messages = (log: Log) => log.cmux.filter(call => call[0] === 'agent' && call[1] === 'message').map(call => call[2])
 const notifications = (log: Log) => log.cmux.filter(call => call[0] === 'notify')
@@ -188,7 +191,23 @@ test('without a stored session the fallback is the notification', async ($, on) 
   expect(notifications(log).length).toBe(1)
 })
 
-test('a parent without an agent is skipped for the main checkout session', async ($, on) => {
+test('a parent without an agent that picks the report up gets no second copy', async ($, on) => {
+  // cmux said no agent for the live parent; another idle session in the main checkout never reads it.
+  const log = fakeWorld(on, {
+    parent: 'workspace:3',
+    session: SESSION,
+    sendAnswer: target => (target === 'workspace:3' ? sent('queued', false) : sent('queued', true, 'm2', 'S2')),
+    inboxById: { m1: 'delivered', m2: 'queued' },
+    mainRef: 'workspace:1',
+    sessionDelivered: true,
+  })
+  await complete($, log, 'Done.')
+  expect(messages(log)).toEqual(['workspace:3'])
+  expect(log.sessionSends).toEqual([])
+  expect(notifications(log)).toEqual([])
+})
+
+test('a parent without an agent that does not pick the report up is skipped for the main checkout session', async ($, on) => {
   const log = fakeWorld(on, {
     parent: 'workspace:3',
     sendAnswer: target => (target === 'workspace:3' ? sent('queued', false) : sent('delivered')),

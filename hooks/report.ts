@@ -1,9 +1,10 @@
 // Report back: a thread session tells the main session whenever its main loop ends a turn.
 //
-// 1. `cmux agent message` to the session that started the thread, else to the main checkout's.
-//    cmux delivers through the receiver's hooks: an idle session wakes up, a busy one reads it
-//    at its next step. cmux can say a live session has no agent and deliver anyway, so a message
-//    it took counts as sent either way.
+// 1. `cmux agent message` to the session that started the thread. cmux delivers through the
+//    receiver's hooks: an idle session wakes up, a busy one reads it at its next step. cmux can
+//    say a live session has no agent and deliver anyway, so the mod checks first whether the
+//    parent picked the message up. Only if it did not, and cmux said it has no agent, the report
+//    goes to the main checkout's session.
 // 2. If the message is still queued after DELIVERY_CHECK_MS while the receiver is idle, its cmux
 //    poller is likely gone. A busy receiver gets up to ten minutes before that counts. The mod
 //    then sends the report through Claude Code (`$.session.send`, what the SendMessage tool does)
@@ -118,19 +119,17 @@ async function sendMessage($: Dollar, target: string, from: string, text: string
   return sent
 }
 
-// The first target with an agent wins; the spawning session first, then the main checkout's.
-// Without one, the parent's message stands: cmux took it and may still deliver it.
-async function sendThroughCmux($: Dollar, ctx: ThreadContext, parent: string, text: string): Promise<{ sent: Sent | null; target: string }> {
-  const parentSent = parent ? await sendMessage($, parent, ctx.slug, text) : null
-  if (parentSent?.hasAgent) return { sent: parentSent, target: parent }
+// The main checkout's session, for a parent that did not pick the report up and that cmux says
+// has no agent. Only a target with an agent counts: anything else would wait there forever.
+async function sendToMainCheckout($: Dollar, ctx: ThreadContext, parent: string, text: string): Promise<{ sent: Sent; target: string } | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     if (!mainRef) mainRef = await findMainRef($, ctx.main)
-    if (!mainRef || mainRef === parent) break
+    if (!mainRef || mainRef === parent) return null
     const sent = await sendMessage($, mainRef, ctx.slug, text)
     if (sent?.hasAgent) return { sent, target: mainRef }
     mainRef = ''
   }
-  return { sent: parentSent, target: parent || mainRef }
+  return null
 }
 
 async function isPickedUp($: Dollar, sent: Sent, target: string): Promise<boolean> {
@@ -162,8 +161,13 @@ async function notify($: Dollar, surface: string, slug: string, body: string) {
 
 async function deliver($: Dollar, ctx: ThreadContext, text: string) {
   const parent = parseParent(await readNote($, `${ctx.gitDir}/wakemux-parent`))
-  const { sent, target } = await sendThroughCmux($, ctx, parent, text)
-  if (sent && (await isPickedUp($, sent, target))) return
+  // cmux can say a live parent has no agent and deliver anyway, so its message is checked first.
+  const parentSent = parent ? await sendMessage($, parent, ctx.slug, text) : null
+  if (parentSent && (await isPickedUp($, parentSent, parent))) return
+  const main = parentSent?.hasAgent ? null : await sendToMainCheckout($, ctx, parent, text)
+  if (main && (await isPickedUp($, main.sent, main.target))) return
+  const surface = parentSent?.surfaceId || main?.sent.surfaceId || ''
+  const target = parent || main?.target || ''
 
   const sessionId = parseSessionId(await readNote($, `${ctx.gitDir}/wakemux-parent-session`))
   if (sessionId) {
@@ -175,7 +179,7 @@ async function deliver($: Dollar, ctx: ThreadContext, text: string) {
       $.ui.log(`wakemux: forwarding the report from ${ctx.slug} failed: ${String(error)}`, { to: 'debug' })
     }
   }
-  await notify($, sent?.surfaceId || (await agentSurface($, target)), ctx.slug, notifyBody(text))
+  await notify($, surface || (await agentSurface($, target)), ctx.slug, notifyBody(text))
   $.ui.log(`wakemux: report from ${ctx.slug} not delivered; sent a desktop notification.`, { to: 'debug' })
 }
 
