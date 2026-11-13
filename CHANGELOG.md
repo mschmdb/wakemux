@@ -4,6 +4,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-11-13
+
+### Fixed
+
+- A thread could send its report twice and ask "SendMessage needs approval" although the main session had the report. When cmux said the main session had no agent, the thread also sent the report to another idle session in the main checkout. That copy stayed queued, so the thread forwarded the report through Claude Code as well. The thread now checks first whether the session that started it picked the report up, and tries other sessions only when it did not.
+
 ## [0.3.4] - 2026-11-12
 
 ### Added
@@ -69,7 +75,8 @@ First public version.
 - `.git/info/exclude` is found from any directory.
 - Copying never writes through a symlink, never overwrites a file in the worktree, and skips files the thread's branch does not ignore.
 
-[Unreleased]: https://github.com/mschmdb/wakemux/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/mschmdb/wakemux/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/mschmdb/wakemux/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/mschmdb/wakemux/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/mschmdb/wakemux/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/mschmdb/wakemux/compare/v0.3.1...v0.3.2
