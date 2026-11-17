@@ -4,6 +4,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-17
+
 ### Fixed
 
 - A thread that works without committing, such as a watcher on a loop, stopped reporting after six turns. The hop limit counted every report on the same commit, including loop ticks, subagent results and prompts the user typed in the thread. It now counts only turns that a message from another session started. A loop tick or a subagent result always reports, and a prompt typed in the thread starts the count again and ends a pause.
@@ -79,7 +81,8 @@ First public version.
 - `.git/info/exclude` is found from any directory.
 - Copying never writes through a symlink, never overwrites a file in the worktree, and skips files the thread's branch does not ignore.
 
-[Unreleased]: https://github.com/mschmdb/wakemux/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/mschmdb/wakemux/compare/v0.3.6...HEAD
+[0.3.6]: https://github.com/mschmdb/wakemux/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/mschmdb/wakemux/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/mschmdb/wakemux/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/mschmdb/wakemux/compare/v0.3.2...v0.3.3
