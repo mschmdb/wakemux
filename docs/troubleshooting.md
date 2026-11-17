@@ -35,7 +35,7 @@ The rule also lets the model's own SendMessage calls through without asking, in 
 
 ## The thread reports nothing because it paused
 
-The sidebar pill says `reports paused after N without a commit`. The thread ended more than `maxHops` turns in a row on the same commit, usually because it and the main session kept answering each other. Read the thread yourself, answer it, and let it commit; reports resume with the next commit.
+The sidebar pill says `reports paused after N without a commit`. The thread answered more than `maxHops` messages from the main session in a row on the same commit, so the two kept answering each other. Read the thread yourself and answer it there: a prompt you type in the thread ends the pause, and so does the next commit. Loop ticks and subagent results still report during the pause.
 
 ## `wakemux new` fails
 

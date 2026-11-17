@@ -19,7 +19,7 @@ import { atom, read, update } from 'claude-code'
 
 import type { Dollar } from './engine'
 import { cmux, dirtyCount, git, loadConfig, mainCheckout, run } from './engine'
-import type { HopAction, Sent } from './delivery'
+import type { HopAction, Sent, TurnOrigin } from './delivery'
 import {
   escalationNote,
   forwardText,
@@ -188,33 +188,41 @@ async function setPill($: Dollar, pill: Pill) {
   await run($, ['cmux', 'set-status', 'wakemux', pill.value, '--color', pill.color, '--priority', '10'], undefined, { CMUX_QUIET: '1' })
 }
 
-type Decision = { action: HopAction; count: number }
+type Decision = { action: HopAction; count: number; paused: boolean }
 
 // Reports can end at the same time; the dedup and hop decisions run one after another so no
 // count is lost. Delivery, which may wait, runs outside this queue.
 let decisions: Promise<unknown> = Promise.resolve()
 
-function decide($: Dollar, report: Report, head: string, maxHops: number): Promise<Decision | null> {
-  const next = decisions.then(async () => {
+// A turn that does not count (counts false) is always reported, also while reports pause.
+function decide($: Dollar, report: Report, head: string, maxHops: number, counts: boolean): Promise<Decision | null> {
+  const next = decisions.then(async (): Promise<Decision | null> => {
     const now = await $.clock.now()
     const key = reportKey(report, head)
     if (isDuplicate(await read($, lastReport), key, now)) return null
     await update($, lastReport, () => ({ key, at: now }))
+    if (!counts) {
+      const current = await read($, hops)
+      const paused = maxHops > 0 && current.head === head && current.count > maxHops
+      return { action: 'send', count: current.count, paused }
+    }
     const counted = nextHops(await read($, hops), head)
     await update($, hops, () => counted)
-    return { action: hopAction(counted.count, maxHops), count: counted.count }
+    const action = hopAction(counted.count, maxHops)
+    return { action, count: counted.count, paused: action === 'notify' || action === 'silent' }
   })
   decisions = next.catch(() => undefined)
   return next
 }
 
 // A quiet turn shows the thread is not answering the main session; the count starts again.
-// Once the limit is reached it stays until a commit, so a loop's ticks cannot lift an
-// escalation or a pause. Runs in the same queue as the hop decisions; returns the count kept.
-function resetHops($: Dollar, head: string, maxHops: number): Promise<number> {
+// Once the limit is reached it stays until a commit or a prompt the user types in the thread
+// (lift), so a loop's ticks cannot lift an escalation or a pause. Runs in the same queue as the
+// hop decisions; returns the count kept.
+function resetHops($: Dollar, head: string, maxHops: number, lift: boolean): Promise<number> {
   const next = decisions.then(async () => {
     const current = await read($, hops)
-    const keep = maxHops > 0 && current.head === head && current.count >= maxHops
+    const keep = !lift && maxHops > 0 && current.head === head && current.count >= maxHops
     if (!keep) await update($, hops, () => ({ head, count: 0 }))
     return keep ? current.count : 0
   })
@@ -222,7 +230,8 @@ function resetHops($: Dollar, head: string, maxHops: number): Promise<number> {
   return next
 }
 
-export async function sendReport($: Dollar, reason: Report['reason'], answer: string) {
+// origin: what started the turn (see turnOrigin); only 'hop' counts toward the limit.
+export async function sendReport($: Dollar, reason: Report['reason'], answer: string, origin: TurnOrigin = 'hop') {
   const ctx = await threadContext($)
   if (!ctx) return
   const { config } = await loadConfig($, ctx.main)
@@ -234,15 +243,16 @@ export async function sendReport($: Dollar, reason: Report['reason'], answer: st
   const head = (await git($, ctx.top, 'rev-parse', 'HEAD')).stdout.trim()
   const pill = { ahead: report.ahead, dirty: report.dirty, reason, pausedAfter: 0 }
   if (!config.report) return setPill($, threadPill(pill))
+  const isUser = origin === 'user'
   if (reason === 'answer' && isQuietAnswer(answer)) {
-    const kept = await resetHops($, head, config.maxHops)
+    const kept = await resetHops($, head, config.maxHops, isUser)
     return setPill($, threadPill({ ...pill, pausedAfter: kept > config.maxHops ? kept : 0 }))
   }
 
-  const decision = await decide($, report, head, config.maxHops)
+  if (isUser) await resetHops($, head, config.maxHops, true)
+  const decision = await decide($, report, head, config.maxHops, origin === 'hop')
   if (!decision) return
-  const paused = decision.action === 'notify' || decision.action === 'silent'
-  await setPill($, threadPill({ ...pill, pausedAfter: paused ? decision.count : 0 }))
+  await setPill($, threadPill({ ...pill, pausedAfter: decision.paused ? decision.count : 0 }))
   switch (decision.action) {
     case 'silent':
       return

@@ -6,6 +6,7 @@ import type { Dollar } from './engine'
 import { cmux, dirtyCount, git, isMainSession, loadConfig, mainCheckout, run, setPluginOptions } from './engine'
 import { handOverPrompt, isPrRequiredRemote, isThreadBranch, parseAgentStatus, parseCounts, parseCwd, parseWorktrees, workspaceRefsByTitle } from './parse'
 import { nudgeMidTurnReports } from './nudge'
+import { noteSubmission, noteTurnStart, takeTurnOrigin } from './origin'
 import { publishSessionId, sendReport } from './report'
 
 const PANE = 'wakemux'
@@ -140,6 +141,16 @@ async function openWorkspace($: Dollar, thread: ThreadRow) {
 
 export const register: Register = (on, options) => {
   setPluginOptions(options)
+  // What started a turn decides whether its report counts toward the hop limit.
+  on('prompt.submit', async ($, e, next) => {
+    noteSubmission(e.origin?.kind, e.text, e.turnId)
+    return next(e)
+  })
+  on('turn.start', async ($, e, next) => {
+    if (!e.agentId) noteTurnStart(e.turnId)
+    return next(e)
+  })
+
   // Only the main loop reports; a subagent's end inside the thread is not the thread's answer.
   on('turn.complete', async ($, e, next) => {
     // Read before the other hooks run, so the turn's start computed from it does not drift.
@@ -147,7 +158,7 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     if (!e.agentId) {
       publishSessionId($).catch(() => undefined)
-      sendReport($, e.reason, e.answer).catch(error => $.ui.log(`wakemux: report failed: ${String(error)}`, { to: 'debug' }))
+      sendReport($, e.reason, e.answer, takeTurnOrigin(e.turnId)).catch(error => $.ui.log(`wakemux: report failed: ${String(error)}`, { to: 'debug' }))
       nudgeMidTurnReports($, endedAt, e.durationMs).catch(error => $.ui.log(`wakemux: mid-turn check failed: ${String(error)}`, { to: 'debug' }))
     }
     return result
