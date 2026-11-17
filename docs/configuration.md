@@ -39,7 +39,7 @@ wakemux config unset maxThreads
 | `prStatus` | `true` | attach a thread's PR to its sidebar entry | skill |
 | `report` | `true` | send reports to the main session | mod |
 | `reportMaxBytes` | `30000` | 1000 to 32000 bytes per report; cmux limits a message to 32 KiB. A forwarded report adds a short note after the limit | mod |
-| `maxHops` | `6` | 0 to 100 reports in a row without a new commit before escalation; `0` turns the limit off | mod |
+| `maxHops` | `6` | 0 to 100 answers in a row to messages from other sessions, without a new commit, before escalation; `0` turns the limit off | mod |
 | `prRequiredOrgs` | `[]` | GitHub organizations whose repositories require PRs. For a matching `origin`, the pane's hand-over prompt tells Claude "This repository requires PRs." It is a hint, not enforcement | mod |
 | `scriptPath` | the bundled `bin/wakemux` | an absolute path. Not accepted from `.wakemux.json`, because the mod runs it without asking | mod |
 | `mergePolicy` | `repo-rules` | `repo-rules`, `pr`, `merge`. Accepted, not used yet | - |

@@ -4,6 +4,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ## [Unreleased]
 
+### Fixed
+
+- A thread that works without committing, such as a watcher on a loop, stopped reporting after six turns. The hop limit counted every report on the same commit, including loop ticks, subagent results and prompts the user typed in the thread. It now counts only turns that a message from another session started. A loop tick or a subagent result always reports, and a prompt typed in the thread starts the count again and ends a pause.
+
 ## [0.3.5] - 2026-11-13
 
 ### Fixed

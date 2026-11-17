@@ -40,6 +40,35 @@ export function messageState(inboxJson: string, id: string): string {
   return ''
 }
 
+// What started a thread's turn decides how its report counts toward the hop limit. Only a
+// message from another session can start ping-pong, so only that counts ('hop'). A prompt the
+// user typed resets the count ('user'). Schedules, subagents and background tasks do not count
+// ('free'). An origin not known here counts, as every turn did before.
+export type TurnOrigin = 'user' | 'free' | 'hop'
+
+// cmux hands its messages to an idle session as a Stop hook's feedback, which the engine files
+// as a task notification; a subagent's hand-back comes as a peer message. Their texts tell them
+// apart. A peer message's first tag is its envelope; a tag quoted in the body does not count.
+const CMUX_MESSAGE = '[cmux agent message] from '
+const SUBAGENT_ENVELOPE = /^[^<]*<agent-message[\s>]/
+
+export function turnOrigin(kind: string | undefined, text: string): TurnOrigin {
+  switch (kind) {
+    case 'composer':
+    case 'bridge':
+    case 'slack-ping':
+      return 'user'
+    case 'scheduled-trigger':
+      return 'free'
+    case 'task-notification':
+      return text.includes(CMUX_MESSAGE) ? 'hop' : 'free'
+    case 'peer':
+      return SUBAGENT_ENVELOPE.test(text) ? 'free' : 'hop'
+    default:
+      return 'hop'
+  }
+}
+
 // A thread marks a turn with nothing to tell, such as a loop's tick without news, by starting
 // its answer with [quiet]. Such a turn sends no report and does not count as a hop.
 export function isQuietAnswer(answer: string): boolean {

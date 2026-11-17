@@ -59,13 +59,20 @@ The main session reads each report and decides, following the `thread` skill:
 
 ## Hop limit
 
-A thread and the main session can answer each other in circles. wakemux counts reports in a row on the same commit. The report number `maxHops` (default 6) asks the main session to stop answering and ask you. The next report becomes a desktop notification instead, and after that the thread stops reporting until it commits again. A quiet turn (an answer that starts with `[quiet]`) is not a hop and starts the count again, unless the count has already reached `maxHops`: an escalation or a pause lasts until the next commit.
+A thread and the main session can answer each other in circles. wakemux counts the thread's answers to messages from other sessions, in a row on the same commit. The answer number `maxHops` (default 6) asks the main session to stop answering and ask you. The next one becomes a desktop notification instead, and after that wakemux stops sending these answers until the thread commits again.
+
+Only a turn that a message from another session started counts: a `cmux agent message` or a message another Claude Code session sent. These do not count and always report, also while answers are paused:
+
+- a loop's tick (a scheduled task or `/loop`)
+- the result of a subagent or background task the thread started
+
+A prompt you type in the thread starts the count again and ends a pause. A quiet turn (an answer that starts with `[quiet]`) is not a hop and starts the count again, unless the count has already reached `maxHops`. A turn whose start wakemux did not see, for example right after `/reload-plugins`, counts.
 
 ## Loops
 
 A thread can repeat a check on a schedule, for example a watcher that looks at open PRs every 30 minutes with `/loop` or the CronCreate tool. Running such a loop in a thread instead of the main session keeps its ticks out of your conversation, and a short tick answer cannot push a thread's report out of sight.
 
-A tick without news starts its answer with `[quiet]`: it sends no report, does not count toward the hop limit and still updates the sidebar pill. A tick with news answers normally and reaches the main session like any report. The `thread` skill tells the main session which lines to put in such a thread's first prompt.
+A tick without news starts its answer with `[quiet]`: it sends no report, does not count toward the hop limit and still updates the sidebar pill. A tick with news answers normally and reaches the main session like any report. Ticks never count as hops, so a loop that does not commit keeps reporting. The `thread` skill tells the main session which lines to put in such a thread's first prompt.
 
 ## Status
 

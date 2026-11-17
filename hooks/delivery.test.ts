@@ -16,6 +16,7 @@ import {
   keepWaiting,
   parseAgentSurface,
   reportKey,
+  turnOrigin,
 } from './delivery'
 
 const SENT = JSON.stringify({
@@ -198,4 +199,40 @@ test('isQuietAnswer takes [quiet] only at the start, after blank space', () => {
   expect(isQuietAnswer('News. [quiet]')).toBe(false)
   expect(isQuietAnswer('[Quiet] nothing')).toBe(false)
   expect(isQuietAnswer('')).toBe(false)
+})
+
+// Texts as the engine delivered them to a thread on 17.11.2026, shortened.
+const CMUX_FROM_MAIN =
+  '<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>\n<system-reminder>\nStop hook blocking error from command "Stop": [cmux agent message] from main\nMessage id: a5877df2'
+const SUBAGENT_DONE = '<task-notification>\n<task-id>a29724c111875e44f</task-id>\n<status>completed</status>'
+const PEER_FROM_MAIN = 'Another Claude session sent a message:\n<cross-session-message from="uds:/tmp/cc-socks/18954.sock" from-name="main">'
+const SUBAGENT_HAND_BACK = 'Another Claude session sent a message:\n<agent-message from="a29724c111875e44f">\n[Subagent hand-back] The text below'
+
+test('turnOrigin: a prompt the user typed or sent from a phone is the user\'s', () => {
+  expect(turnOrigin('composer', 'die letzte row überlappt')).toBe('user')
+  expect(turnOrigin('bridge', 'go on')).toBe('user')
+  expect(turnOrigin('slack-ping', 'status?')).toBe('user')
+})
+
+test('turnOrigin: schedules, subagents and background tasks do not count', () => {
+  expect(turnOrigin('scheduled-trigger', 'Wächter-Tick')).toBe('free')
+  expect(turnOrigin('task-notification', SUBAGENT_DONE)).toBe('free')
+  expect(turnOrigin('peer', SUBAGENT_HAND_BACK)).toBe('free')
+})
+
+test('turnOrigin: a message from another session counts, whichever way it came', () => {
+  expect(turnOrigin('task-notification', CMUX_FROM_MAIN)).toBe('hop')
+  expect(turnOrigin('peer', PEER_FROM_MAIN)).toBe('hop')
+  expect(turnOrigin('peer-send-message', 'Main says: merge it')).toBe('hop')
+})
+
+test('turnOrigin: a message from main that quotes a subagent hand-back still counts', () => {
+  expect(turnOrigin('peer', `${PEER_FROM_MAIN}\nThe subagent wrote <agent-message from="x">`)).toBe('hop')
+})
+
+test('turnOrigin: an origin it does not know counts, as before', () => {
+  expect(turnOrigin(undefined, 'anything')).toBe('hop')
+  expect(turnOrigin('unclassified', '')).toBe('hop')
+  expect(turnOrigin('plugin', 'x')).toBe('hop')
+  expect(turnOrigin('something-new', 'x')).toBe('hop')
 })
